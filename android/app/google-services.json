@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "552464323715",
+    "project_id": "connectdial-bb223",
+    "storage_bucket": "connectdial-bb223.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:552464323715:android:109a7979c7d8afac7877b6",
+        "android_client_info": {
+          "package_name": "com.connectdialmobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDYpgJyMpplLTUw2gUUCDDsKmpiP-mHQ-A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
