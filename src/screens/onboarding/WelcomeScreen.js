@@ -5,22 +5,23 @@ export default function WelcomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       {/* App Logo */}
-      <Image
+      {/* <Image
         source={require('../assets/connectdial_logo.png')} // Replace with your logo
         style={styles.logo}
         resizeMode="contain"
-      />
+      /> */}
 
       {/* Welcome Text */}
       <Text style={styles.title}>Welcome to ConnectDial!</Text>
       <Text style={styles.subtitle}>
-        Follow your favorite leagues and teams, join fan communities, and never miss a conversation!
+        Follow your favorite leagues and teams, join fan communities, and never
+        miss a conversation!
       </Text>
 
       {/* Get Started Button */}
       <TouchableOpacity
         style={styles.button}
-        onPress={() => navigation.navigate("ChooseLeagues")}
+        onPress={() => navigation.navigate('SelectLeagues')}
       >
         <Text style={styles.buttonText}>Get Started</Text>
       </TouchableOpacity>

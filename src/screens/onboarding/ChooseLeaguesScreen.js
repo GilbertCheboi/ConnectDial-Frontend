@@ -1,29 +1,36 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Button, Image } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  Button,
+  Image,
+} from 'react-native';
 
 const leagues = [
-  { id: 1, name: "Premier League", logo: require('../assets/epl.png') },
-  { id: 2, name: "NBA", logo: require('../assets/nba.png') },
-  { id: 3, name: "NFL", logo: require('../assets/nfl.png') },
-  { id: 4, name: "F1", logo: require('../assets/f1.png') },
-  { id: 5, name: "Boxing", logo: require('../assets/boxing.png') },
-  { id: 6, name: "MLB", logo: require('../assets/mlb.png') },
+  { id: 1, name: 'Premier League', logo: require('../assets/epl.png') },
+  { id: 2, name: 'NBA', logo: require('../assets/NBA.jpeg') },
+  { id: 3, name: 'NFL', logo: require('../assets/NFL.png') },
+  { id: 4, name: 'F1', logo: require('../assets/F1.png') },
+  { id: 5, name: 'Boxing', logo: require('../assets/Boxing.png') },
+  { id: 6, name: 'MLB', logo: require('../assets/MLB.png') },
 ];
 
 export default function ChooseLeaguesScreen({ navigation }) {
   const [selectedLeagues, setSelectedLeagues] = useState([]);
 
-  const toggleLeague = (id) => {
+  const toggleLeague = id => {
     setSelectedLeagues(prev =>
-      prev.includes(id)
-        ? prev.filter(l => l !== id)
-        : [...prev, id]
+      prev.includes(id) ? prev.filter(l => l !== id) : [...prev, id],
     );
   };
 
   const proceed = () => {
-    if (selectedLeagues.length === 0) return alert("Select at least one league to continue.");
-    navigation.navigate("ChooseTeams", { selectedLeagues });
+    if (selectedLeagues.length === 0)
+      return alert('Select at least one league to continue.');
+    navigation.navigate('SelectTeams', { selectedLeagues });
   };
 
   const renderLeague = ({ item }) => {
@@ -34,7 +41,9 @@ export default function ChooseLeaguesScreen({ navigation }) {
         style={[styles.card, isSelected && styles.cardSelected]}
       >
         <Image source={item.logo} style={styles.logo} resizeMode="contain" />
-        <Text style={[styles.name, isSelected && styles.nameSelected]}>{item.name}</Text>
+        <Text style={[styles.name, isSelected && styles.nameSelected]}>
+          {item.name}
+        </Text>
       </TouchableOpacity>
     );
   };
@@ -59,7 +68,13 @@ export default function ChooseLeaguesScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: '#0D1F2D' },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 20, textAlign: 'center' },
+  title: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
   row: { justifyContent: 'space-between', marginBottom: 15 },
   card: {
     flex: 0.48,
