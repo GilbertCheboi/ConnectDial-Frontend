@@ -14,8 +14,18 @@ const leagues = [
   { id: 2, name: 'NBA', logo: require('../assets/NBA.jpeg') },
   { id: 3, name: 'NFL', logo: require('../assets/NFL.png') },
   { id: 4, name: 'F1', logo: require('../assets/F1.png') },
-  { id: 5, name: 'Boxing', logo: require('../assets/Boxing.png') },
+  {
+    id: 5,
+    name: 'Champions League',
+    logo: require('../assets/Champions_League.png'),
+  },
   { id: 6, name: 'MLB', logo: require('../assets/MLB.png') },
+  { id: 7, name: 'NHL', logo: require('../assets/NHL-logo.jpg') },
+  { id: 8, name: 'La Liga', logo: require('../assets/laliga.png') },
+  { id: 9, name: 'Serie A', logo: require('../assets/Serie_A.png') },
+  { id: 10, name: 'Bundesliga', logo: require('../assets/bundesliga.jpg') },
+  { id: 11, name: 'Ligue 1', logo: require('../assets/Ligue1_logo.png') },
+  { id: 12, name: 'Afcon', logo: require('../assets/Afcon.png') },
 ];
 
 export default function ChooseLeaguesScreen({ navigation }) {

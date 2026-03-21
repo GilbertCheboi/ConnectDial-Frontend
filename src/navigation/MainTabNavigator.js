@@ -9,7 +9,6 @@ import SearchScreen from '../screens/SearchScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ShortsScreen from '../screens/ShortsScreen';
 import CreatePostScreen from '../components/CreatePostScreen'; // <-- 1. IMPORT HERE
-
 const Tab = createBottomTabNavigator();
 
 export default function MainTabNavigator() {

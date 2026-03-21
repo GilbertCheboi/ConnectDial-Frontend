@@ -1,75 +1,171 @@
-// src/screens/ProfileScreen.js
-import React, { useContext } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useContext } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import api from '../api/client';
+import PostCard from '../components/PostCard';
 import { AuthContext } from '../store/authStore';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 
-export default function ProfileScreen() {
-  const { user } = useContext(AuthContext);
+export default function ProfileScreen({ route }) {
+  const { user: loggedInUser } = useContext(AuthContext);
+
+  // Look for userId in params, otherwise default to the logged-in user
+  const userId = route.params?.userId || loggedInUser?.id;
+
+  const [profile, setProfile] = useState(null);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = async () => {
+    try {
+      // 1. Profile Fetch
+      const profileUrl = userId
+        ? `auth/update/?user_id=${userId}`
+        : `auth/update/`;
+      const profileRes = await api.get(profileUrl);
+      // Standardize the profile data
+      const profileData = profileRes.data.data || profileRes.data;
+      setProfile(profileData);
+
+      // 2. Posts Fetch (THE FIX)
+      const postUrl = userId
+        ? `api/posts/?user=${userId}`
+        : `api/posts/?filter=mine`;
+      const postsRes = await api.get(postUrl);
+
+      // LOG THIS to see the structure: console.log("Post Data:", postsRes.data);
+
+      // Check if data is inside a 'results' key (pagination) or is a direct array
+      const actualPosts = Array.isArray(postsRes.data)
+        ? postsRes.data
+        : postsRes.data.results || [];
+
+      setPosts(actualPosts);
+    } catch (err) {
+      console.error('Fetch Error:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // Re-run whenever the userId changes (e.g., clicking a friend's profile)
+  useEffect(() => {
+    setLoading(true);
+    loadData();
+  }, [userId]);
+
+  if (loading)
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: '#0D1F2D',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color="#1E90FF" />
+      </View>
+    );
 
   return (
-    <View style={styles.container}>
-      {/* Header / Cover Area */}
-      <View style={styles.header}>
-        <Image
-          source={{
-            uri: user?.banner_image || 'https://via.placeholder.com/800x200',
+    <FlatList
+      style={{ backgroundColor: '#0D1F2D' }}
+      data={posts}
+      keyExtractor={item => item.id.toString()}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => {
+            setRefreshing(true);
+            loadData();
           }}
-          style={styles.banner}
+          tintColor="#fff"
         />
-        <View style={styles.profileImageContainer}>
-          <Image
-            source={{
-              uri: user?.profile_image || 'https://via.placeholder.com/150',
-            }}
-            style={styles.profileImage}
-          />
-        </View>
-      </View>
-
-      {/* User Info */}
-      <View style={styles.infoSection}>
-        <Text style={styles.name}>{user?.display_name || user?.username}</Text>
-        <Text style={styles.handle}>@{user?.username}</Text>
-        <Text style={styles.bio}>
-          {user?.bio || 'No bio yet. Add one in settings!'}
+      }
+      ListHeaderComponent={
+        <>
+          <View style={styles.headerContainer}>
+            <Image
+              source={{
+                uri:
+                  profile?.banner_image ||
+                  'https://via.placeholder.com/800x200',
+              }}
+              style={styles.banner}
+            />
+            <Image
+              source={{
+                uri:
+                  profile?.profile_image || 'https://via.placeholder.com/150',
+              }}
+              style={styles.profilePic}
+            />
+          </View>
+          <View style={styles.bioContainer}>
+            <Text style={styles.name}>
+              {profile?.display_name || profile?.username || 'Fan'}
+            </Text>
+            <Text style={styles.handle}>
+              @{profile?.username || 'anonymous'}
+            </Text>
+            <Text style={styles.bio}>{profile?.bio || 'No bio yet.'}</Text>
+            <View style={styles.statsRow}>
+              <Text style={styles.statText}>
+                <Text style={styles.bold}>{posts.length}</Text> Posts
+              </Text>
+            </View>
+          </View>
+          <View style={styles.tabHeader}>
+            <Text style={styles.tabText}>POSTS</Text>
+          </View>
+        </>
+      }
+      renderItem={({ item }) => <PostCard post={item} />}
+      ListEmptyComponent={
+        <Text style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>
+          No posts yet.
         </Text>
-      </View>
-
-      {/* Simple Stats or Actions */}
-      <View style={styles.statsRow}>
-        <TouchableOpacity style={styles.statBox}>
-          <Text style={styles.statNumber}>0</Text>
-          <Text style={styles.statLabel}>Posts</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.statBox}>
-          <Text style={styles.statNumber}>0</Text>
-          <Text style={styles.statLabel}>Followers</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D1F2D' },
-  header: { height: 180, position: 'relative' },
-  banner: { width: '100%', height: 120 },
-  profileImageContainer: {
+  headerContainer: { height: 160 },
+  banner: { width: '100%', height: 120, backgroundColor: '#1A2A3D' },
+  profilePic: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: '#0D1F2D',
     position: 'absolute',
     bottom: 0,
     left: 20,
-    borderWidth: 4,
-    borderColor: '#0D1F2D',
-    borderRadius: 50,
+    backgroundColor: '#0D1F2D',
   },
-  profileImage: { width: 80, height: 80, borderRadius: 40 },
-  infoSection: { padding: 20, marginTop: 10 },
+  bioContainer: { padding: 20, marginTop: 10 },
   name: { color: '#fff', fontSize: 24, fontWeight: 'bold' },
-  handle: { color: '#888', fontSize: 16 },
-  bio: { color: '#ccc', marginTop: 10, lineHeight: 20 },
-  statsRow: { flexDirection: 'row', paddingHorizontal: 20, marginTop: 20 },
-  statBox: { marginRight: 30, alignItems: 'center' },
-  statNumber: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  statLabel: { color: '#888', fontSize: 14 },
+  handle: { color: '#64748B', fontSize: 14, marginBottom: 5 },
+  bio: { color: '#ccc', marginTop: 5, fontSize: 14, lineHeight: 20 },
+  statsRow: { flexDirection: 'row', marginTop: 15 },
+  statText: { color: '#888', marginRight: 20 },
+  bold: { color: '#fff', fontWeight: 'bold' },
+  tabHeader: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#1E90FF',
+    width: 80,
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginLeft: 20,
+  },
+  tabText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
 });

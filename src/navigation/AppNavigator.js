@@ -5,6 +5,7 @@ import { AuthContext } from '../store/authStore';
 import AuthNavigator from '../api/AuthNavigator';
 import MainDrawerNavigator from './MainDrawerNavigator'; // Updated import
 import OnboardingNavigator from '../api/OnboardingNavigator';
+import MainStackNavigator from './MainStackNavigator'; // NEW: Stack that includes Drawer + Comments
 
 export default function AppNavigator() {
   const { user, loading, isNew } = useContext(AuthContext);
@@ -23,7 +24,7 @@ export default function AppNavigator() {
         isNew ? (
           <OnboardingNavigator />
         ) : (
-          <MainDrawerNavigator /> // Now points to the Drawer + Tabs combo
+          <MainStackNavigator /> // 🚀 This now wraps both Drawer and Comments
         )
       ) : (
         <AuthNavigator />

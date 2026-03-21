@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,23 +10,86 @@ import {
   Alert,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import api from '../api/client';
+import { useIsFocused } from '@react-navigation/native';
 
 export default function CreatePostScreen({ route, navigation }) {
-  const [content, setContent] = useState('');
-  const [selectedLeague, setSelectedLeague] = useState(
-    route.params?.leagueId || null,
-  );
-  const [selectedName, setSelectedName] = useState(
-    route.params?.leagueName || '',
-  );
+  const isFocused = useIsFocused();
 
-  // 1. CHANGE: State is now an array for multiple files
+  // Extract initial params
+  const {
+    editMode = false,
+    postData = null,
+    leagueId = null,
+    leagueName = '',
+    onEditSuccess,
+    postType: initialType = null,
+  } = route.params || {};
+
+  // --- 1. STATE ---
+  const [content, setContent] = useState('');
+  const [selectedLeague, setSelectedLeague] = useState(leagueId);
+  const [selectedName, setSelectedName] = useState(leagueName);
   const [mediaList, setMediaList] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [postType, setPostType] = useState(initialType);
+
+  // --- 2. HELPERS ---
+
+  // Memoized reset function to prevent infinite loops in useEffect
+  const resetForm = useCallback(() => {
+    setContent('');
+    setMediaList([]);
+    setLoading(false);
+
+    // Reset selection logic based on whether they were passed as props
+    if (!leagueId) {
+      setSelectedLeague(null);
+      setSelectedName('');
+    }
+    if (!initialType) {
+      setPostType(null);
+    }
+  }, [leagueId, initialType]);
+
+  // --- 3. EFFECTS ---
+
+  // Handle Edit Mode Setup - only runs when entering edit mode
+  useEffect(() => {
+    if (editMode && postData) {
+      setContent(postData.content || '');
+      setSelectedLeague(postData.league || leagueId);
+      setSelectedName(postData.league_name || leagueName);
+      setPostType(postData.is_short ? 'short' : 'standard');
+
+      if (postData.media_file) {
+        setMediaList([{ uri: postData.media_file, isExisting: true }]);
+      }
+      navigation.setOptions({ title: 'Edit Post' });
+    }
+  }, [editMode, postData]);
+
+  // Clean up state and params when navigating AWAY
+  useEffect(() => {
+    if (!isFocused) {
+      resetForm();
+
+      // Only clear params if they exist to prevent infinite update loop
+      if (route.params?.editMode || route.params?.postData) {
+        navigation.setParams({
+          editMode: false,
+          postData: null,
+          postType: null,
+          leagueId: null,
+          leagueName: null,
+        });
+      }
+    }
+  }, [isFocused, resetForm]);
 
   const leagues = [
     { id: 1, name: 'Premier League' },
@@ -37,71 +100,127 @@ export default function CreatePostScreen({ route, navigation }) {
 
   const pickMedia = async () => {
     const options = {
-      mediaType: 'mixed',
-      selectionLimit: 0, // 0 allows unlimited selection (or set to 4, 10, etc.)
+      mediaType: postType === 'short' ? 'video' : 'mixed',
+      selectionLimit: 1,
       quality: 0.8,
     };
 
     const result = await launchImageLibrary(options);
-
     if (result.didCancel) return;
     if (result.assets) {
-      // Append new selections to any existing ones
-      setMediaList([...mediaList, ...result.assets]);
+      setMediaList(result.assets);
     }
-  };
-
-  const removeMedia = index => {
-    const newList = [...mediaList];
-    newList.splice(index, 1);
-    setMediaList(newList);
   };
 
   const handlePost = async () => {
     if (!content.trim() && mediaList.length === 0) return;
+    if (postType === 'short' && mediaList.length === 0) {
+      Alert.alert('Required', 'Please select a video for your Short.');
+      return;
+    }
+
     setLoading(true);
 
     const formData = new FormData();
     formData.append('content', content);
-    formData.append('league', selectedLeague);
+    formData.append('league', selectedLeague || '');
+    formData.append('is_short', postType === 'short');
 
-    // Determine post type based on first file (or your backend logic)
-    const hasVideo = mediaList.some(m => m.type?.includes('video'));
-    formData.append('post_type', hasVideo ? 'video' : 'image');
-
-    // 2. CHANGE: Append all files to the FormData
-    mediaList.forEach((media, index) => {
-      formData.append('files', {
-        uri:
-          Platform.OS === 'android'
-            ? media.uri
-            : media.uri.replace('file://', ''),
-        type: media.type,
-        name: media.fileName || `file_${index}.jpg`,
+    const newMedia = mediaList.filter(m => !m.isExisting);
+    if (newMedia.length > 0) {
+      newMedia.forEach((media, index) => {
+        formData.append('media_file', {
+          uri:
+            Platform.OS === 'android'
+              ? media.uri
+              : media.uri.replace('file://', ''),
+          type:
+            media.type || (postType === 'short' ? 'video/mp4' : 'image/jpeg'),
+          name:
+            media.fileName ||
+            `upload_${index}.${postType === 'short' ? 'mp4' : 'jpg'}`,
+        });
       });
-    });
+    }
 
     try {
-      await api.post('api/posts/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      let response;
+      if (editMode) {
+        response = await api.patch(`api/posts/${postData.id}/`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        if (onEditSuccess) onEditSuccess(response.data);
+      } else {
+        response = await api.post('api/posts/', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
 
-      Alert.alert('Success', 'Post created!');
-      setMediaList([]);
-      setContent('');
-      navigation.navigate('Home');
+      // Success logic
+      setLoading(false); // Stop spinner immediately after response
+      Alert.alert('Success', editMode ? 'Updated!' : 'Shared!', [
+        {
+          text: 'OK',
+          onPress: () => {
+            resetForm();
+            navigation.goBack();
+          },
+        },
+      ]);
     } catch (err) {
-      console.log('Upload Error:', err.response?.data);
-      Alert.alert('Error', 'Could not upload post.');
-    } finally {
       setLoading(false);
+      Alert.alert('Error', 'Could not save post.');
+      console.error(err);
     }
   };
 
-  if (!selectedLeague) {
+  // --- 4. CONDITIONAL RENDERING ---
+
+  if (!postType && !editMode) {
     return (
       <View style={styles.container}>
-        <Text style={styles.headerText}>Where would you like to post?</Text>
+        <Text style={styles.headerText}>What are you sharing?</Text>
+        <TouchableOpacity
+          style={styles.typeItem}
+          onPress={() => setPostType('standard')}
+        >
+          <Ionicons name="document-text-outline" size={30} color="#1E90FF" />
+          <View style={styles.typeTextContainer}>
+            <Text style={styles.typeTitle}>Standard Post</Text>
+            <Text style={styles.typeDesc}>
+              Text, images, or standard videos
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.typeItem, { borderColor: '#FF4B4B' }]}
+          onPress={() => setPostType('short')}
+        >
+          <Ionicons name="videocam-outline" size={30} color="#FF4B4B" />
+          <View style={styles.typeTextContainer}>
+            <Text style={[styles.typeTitle, { color: '#FF4B4B' }]}>
+              Short Video
+            </Text>
+            <Text style={styles.typeDesc}>
+              Full-screen vertical sports highlights
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!selectedLeague && !editMode) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity
+          onPress={() => setPostType(null)}
+          style={{ marginBottom: 10 }}
+        >
+          <Text style={styles.changeBtn}>← Back to post type</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerText}>Which league is this for?</Text>
         <FlatList
           data={leagues}
           keyExtractor={item => item.id.toString()}
@@ -127,56 +246,75 @@ export default function CreatePostScreen({ route, navigation }) {
       contentContainerStyle={{ paddingBottom: 40 }}
     >
       <View style={styles.headerRow}>
-        <Text style={styles.postingTo}>
-          Posting to: <Text style={styles.leagueHighlight}>{selectedName}</Text>
-        </Text>
-        <TouchableOpacity onPress={() => setSelectedLeague(null)}>
-          <Text style={styles.changeBtn}>Change</Text>
-        </TouchableOpacity>
+        <View>
+          <Text style={styles.postingTo}>
+            {postType === 'short' ? '🎥 Short' : '📝 Post'} in{' '}
+            <Text style={styles.leagueHighlight}>{selectedName}</Text>
+          </Text>
+        </View>
+        {!editMode && (
+          <TouchableOpacity onPress={() => setSelectedLeague(null)}>
+            <Text style={styles.changeBtn}>Change</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <TextInput
         style={styles.input}
-        placeholder="What's on your mind?"
+        placeholder={
+          postType === 'short'
+            ? 'Add a caption for your highlight...'
+            : "What's on your mind?"
+        }
         placeholderTextColor="#94A3B8"
         multiline
         value={content}
         onChangeText={setContent}
       />
 
-      {/* 3. CHANGE: Horizontal preview list for multiple images */}
       {mediaList.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.mediaRow}
-        >
+        <View style={styles.mediaRow}>
           {mediaList.map((item, index) => (
             <View key={index} style={styles.previewWrapper}>
-              <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+              <Image
+                source={{
+                  uri:
+                    item.isExisting && !item.uri.startsWith('http')
+                      ? `http://192.168.100.107:8000${item.uri}`
+                      : item.uri,
+                }}
+                style={styles.thumbnail}
+              />
               <TouchableOpacity
                 style={styles.removeBadge}
-                onPress={() => removeMedia(index)}
+                onPress={() => setMediaList([])}
               >
                 <Ionicons name="close-circle" size={24} color="#FF4B4B" />
               </TouchableOpacity>
-              {item.type?.includes('video') && (
-                <View style={styles.playIcon}>
-                  <Ionicons name="play" size={15} color="#fff" />
-                </View>
-              )}
             </View>
           ))}
-          <TouchableOpacity style={styles.addMoreBtn} onPress={pickMedia}>
-            <Ionicons name="add" size={30} color="#1E90FF" />
-          </TouchableOpacity>
-        </ScrollView>
+        </View>
       )}
 
       <View style={styles.toolbar}>
         <TouchableOpacity style={styles.toolBtn} onPress={pickMedia}>
-          <Ionicons name="images-outline" size={28} color="#1E90FF" />
-          <Text style={styles.toolText}>Add Photos/Videos</Text>
+          <Ionicons
+            name={postType === 'short' ? 'videocam' : 'images'}
+            size={28}
+            color={postType === 'short' ? '#FF4B4B' : '#1E90FF'}
+          />
+          <Text
+            style={[
+              styles.toolText,
+              { color: postType === 'short' ? '#FF4B4B' : '#1E90FF' },
+            ]}
+          >
+            {mediaList.length > 0
+              ? 'Replace'
+              : postType === 'short'
+              ? 'Select Video'
+              : 'Add Photo/Video'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -188,9 +326,13 @@ export default function CreatePostScreen({ route, navigation }) {
         onPress={handlePost}
         disabled={loading || (!content.trim() && mediaList.length === 0)}
       >
-        <Text style={styles.postButtonText}>
-          {loading ? 'Uploading...' : 'Post'}
-        </Text>
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.postButtonText}>
+            {editMode ? 'Update' : 'Post'}
+          </Text>
+        )}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -205,6 +347,19 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     marginTop: 40,
   },
+  typeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#162A3B',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#1E90FF',
+  },
+  typeTextContainer: { marginLeft: 15 },
+  typeTitle: { color: '#1E90FF', fontSize: 18, fontWeight: 'bold' },
+  typeDesc: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
   leagueItem: {
     backgroundColor: '#162A3B',
     padding: 18,
@@ -216,55 +371,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 20,
+    alignItems: 'center',
   },
   postingTo: { color: '#94A3B8' },
   leagueHighlight: { color: '#1E90FF', fontWeight: 'bold' },
-  changeBtn: { color: '#1E90FF' },
+  changeBtn: { color: '#1E90FF', fontWeight: 'bold' },
   input: {
     color: '#fff',
     fontSize: 18,
     minHeight: 120,
     textAlignVertical: 'top',
   },
-
-  // Media Styling
-  mediaRow: { marginVertical: 15, flexDirection: 'row' },
-  previewWrapper: { position: 'relative', marginRight: 12 },
+  mediaRow: { marginVertical: 15 },
+  previewWrapper: { position: 'relative', width: 100 },
   thumbnail: {
     width: 100,
     height: 100,
     borderRadius: 10,
     backgroundColor: '#162A3B',
   },
-  removeBadge: { position: 'absolute', top: -10, right: -10 },
-  playIcon: {
-    position: 'absolute',
-    bottom: 5,
-    right: 5,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 10,
-    padding: 2,
-  },
-  addMoreBtn: {
-    width: 100,
-    height: 100,
-    borderRadius: 10,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    borderColor: '#1E90FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
+  removeBadge: { position: 'absolute', top: -10, right: -10, zIndex: 1 },
   toolbar: {
-    flexDirection: 'row',
     borderTopWidth: 1,
     borderTopColor: '#1E293B',
     paddingTop: 15,
     marginTop: 10,
   },
   toolBtn: { flexDirection: 'row', alignItems: 'center' },
-  toolText: { color: '#1E90FF', marginLeft: 8, fontWeight: '600' },
+  toolText: { marginLeft: 8, fontWeight: '600' },
   postButton: {
     backgroundColor: '#1E90FF',
     padding: 15,
