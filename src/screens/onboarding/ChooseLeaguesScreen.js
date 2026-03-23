@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Button,
   Image,
+  SafeAreaView,
+  Alert,
 } from 'react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const leagues = [
   { id: 1, name: 'Premier League', logo: require('../assets/epl.png') },
@@ -28,8 +30,11 @@ const leagues = [
   { id: 12, name: 'Afcon', logo: require('../assets/Afcon.png') },
 ];
 
-export default function ChooseLeaguesScreen({ navigation }) {
+export default function ChooseLeaguesScreen({ navigation, route }) {
   const [selectedLeagues, setSelectedLeagues] = useState([]);
+
+  // 🚀 MODE CHECK: Are we adding a new league or starting fresh?
+  const isAddingNew = route.params?.mode === 'add';
 
   const toggleLeague = id => {
     setSelectedLeagues(prev =>
@@ -38,19 +43,40 @@ export default function ChooseLeaguesScreen({ navigation }) {
   };
 
   const proceed = () => {
-    if (selectedLeagues.length === 0)
-      return alert('Select at least one league to continue.');
-    navigation.navigate('SelectTeams', { selectedLeagues });
+    if (selectedLeagues.length === 0) {
+      return Alert.alert(
+        'Selection Required',
+        'Please select at least one league to continue.',
+      );
+    }
+
+    // 🚀 Pass the mode forward to SelectTeams
+    navigation.navigate('SelectTeams', {
+      selectedLeagues,
+      mode: isAddingNew ? 'add' : 'onboarding',
+    });
   };
 
   const renderLeague = ({ item }) => {
     const isSelected = selectedLeagues.includes(item.id);
     return (
       <TouchableOpacity
+        activeOpacity={0.8}
         onPress={() => toggleLeague(item.id)}
         style={[styles.card, isSelected && styles.cardSelected]}
       >
-        <Image source={item.logo} style={styles.logo} resizeMode="contain" />
+        <View style={styles.logoContainer}>
+          <Image source={item.logo} style={styles.logo} resizeMode="contain" />
+          {isSelected && (
+            <View style={styles.checkBadge}>
+              <MaterialCommunityIcons
+                name="check-circle"
+                size={20}
+                color="#fff"
+              />
+            </View>
+          )}
+        </View>
         <Text style={[styles.name, isSelected && styles.nameSelected]}>
           {item.name}
         </Text>
@@ -59,43 +85,110 @@ export default function ChooseLeaguesScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Select Leagues You Follow</Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>
+          {isAddingNew ? 'Add New Leagues' : 'Welcome to ConnectDial'}
+        </Text>
+        <Text style={styles.subtitle}>
+          {isAddingNew
+            ? 'Select additional leagues you want to follow'
+            : 'Choose the leagues you want to follow to personalize your feed'}
+        </Text>
+      </View>
+
       <FlatList
         data={leagues}
         keyExtractor={item => item.id.toString()}
         renderItem={renderLeague}
         numColumns={2}
         columnWrapperStyle={styles.row}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 100 }}
       />
-      <View style={{ marginTop: 20 }}>
-        <Button title="Next" onPress={proceed} color="#1E90FF" />
+
+      <View style={styles.footer}>
+        <TouchableOpacity style={styles.nextButton} onPress={proceed}>
+          <Text style={styles.nextButtonText}>Next: Select Teams</Text>
+          <MaterialCommunityIcons name="arrow-right" size={20} color="#fff" />
+        </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#0D1F2D' },
+  container: { flex: 1, backgroundColor: '#0D1F2D' },
+  header: { padding: 25, paddingTop: 40 },
   title: {
-    fontSize: 22,
-    fontWeight: 'bold',
+    fontSize: 26,
+    fontWeight: '900',
     color: '#fff',
-    marginBottom: 20,
-    textAlign: 'center',
+    letterSpacing: 0.5,
   },
-  row: { justifyContent: 'space-between', marginBottom: 15 },
+  subtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  row: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 15,
+  },
   card: {
     flex: 0.48,
     backgroundColor: '#1A2A3D',
-    padding: 15,
-    borderRadius: 12,
+    padding: 20,
+    borderRadius: 16,
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#1E293B',
   },
-  cardSelected: { backgroundColor: '#1E90FF' },
-  logo: { width: 60, height: 60, marginBottom: 10 },
-  name: { fontSize: 16, color: '#fff' },
+  cardSelected: {
+    backgroundColor: '#0D1F2D',
+    borderColor: '#1E90FF',
+    borderWidth: 2,
+  },
+  logoContainer: { position: 'relative', marginBottom: 12 },
+  logo: { width: 70, height: 70 },
+  checkBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#1E90FF',
+    borderRadius: 10,
+  },
+  name: {
+    fontSize: 14,
+    color: '#94A3B8',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   nameSelected: { color: '#fff', fontWeight: 'bold' },
+
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
+    padding: 20,
+    backgroundColor: '#0D1F2D',
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+  },
+  nextButton: {
+    backgroundColor: '#1E90FF',
+    flexDirection: 'row',
+    height: 55,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  nextButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginRight: 10,
+  },
 });

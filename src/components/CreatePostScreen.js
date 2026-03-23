@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useContext,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
@@ -16,11 +22,30 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import api from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
+import { AuthContext } from '../store/authStore';
+
+const LEAGUE_MAP = {
+  1: { name: 'Premier League', logo: require('../screens/assets/epl.png') },
+  2: { name: 'NBA', logo: require('../screens/assets/NBA.jpeg') },
+  3: { name: 'NFL', logo: require('../screens/assets/NFL.png') },
+  4: { name: 'F1', logo: require('../screens/assets/F1.png') },
+  5: {
+    name: 'Champions League',
+    logo: require('../screens/assets/Champions_League.png'),
+  },
+  6: { name: 'MLB', logo: require('../screens/assets/MLB.png') },
+  7: { name: 'NHL', logo: require('../screens/assets/NHL-logo.jpg') },
+  8: { name: 'La Liga', logo: require('../screens/assets/laliga.png') },
+  9: { name: 'Serie A', logo: require('../screens/assets/Serie_A.png') },
+  10: { name: 'Bundesliga', logo: require('../screens/assets/bundesliga.jpg') },
+  11: { name: 'Ligue 1', logo: require('../screens/assets/Ligue1_logo.png') },
+  12: { name: 'Afcon', logo: require('../screens/assets/Afcon.png') },
+};
 
 export default function CreatePostScreen({ route, navigation }) {
   const isFocused = useIsFocused();
+  const { user } = useContext(AuthContext);
 
-  // Extract initial params
   const {
     editMode = false,
     postData = null,
@@ -28,9 +53,10 @@ export default function CreatePostScreen({ route, navigation }) {
     leagueName = '',
     onEditSuccess,
     postType: initialType = null,
+    quoteMode = false, // 🚀 Added
+    parentPost = null, // 🚀 Added
   } = route.params || {};
 
-  // --- 1. STATE ---
   const [content, setContent] = useState('');
   const [selectedLeague, setSelectedLeague] = useState(leagueId);
   const [selectedName, setSelectedName] = useState(leagueName);
@@ -38,144 +64,202 @@ export default function CreatePostScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const [postType, setPostType] = useState(initialType);
 
-  // --- 2. HELPERS ---
+  // --- LOGIC: AUTO-FILL LEAGUE FOR QUOTES ---
+  useEffect(() => {
+    if (quoteMode && parentPost) {
+      setPostType('standard'); // Quotes are always standard posts
+      setSelectedLeague(parentPost.league);
+      setSelectedName(parentPost.league_name || 'Original League');
+    }
+  }, [quoteMode, parentPost]);
 
-  // Memoized reset function to prevent infinite loops in useEffect
+  const userLeagues = useMemo(() => {
+    if (!user?.fan_preferences || !Array.isArray(user.fan_preferences))
+      return [];
+    const uniqueLeagues = [];
+    const seenIds = new Set();
+    user.fan_preferences.forEach(pref => {
+      const id = pref.league;
+      if (id && !seenIds.has(id)) {
+        seenIds.add(id);
+        const details = LEAGUE_MAP[id] || { name: `League ${id}`, logo: null };
+        uniqueLeagues.push({ id, ...details });
+      }
+    });
+    return uniqueLeagues.sort((a, b) => a.id - b.id);
+  }, [user?.fan_preferences]);
+
+  // 1. Enhanced Reset Logic
   const resetForm = useCallback(() => {
     setContent('');
     setMediaList([]);
     setLoading(false);
+    setSelectedLeague(null);
+    setSelectedName('');
+    setPostType(null);
 
-    // Reset selection logic based on whether they were passed as props
-    if (!leagueId) {
-      setSelectedLeague(null);
-      setSelectedName('');
-    }
-    if (!initialType) {
-      setPostType(null);
-    }
-  }, [leagueId, initialType]);
+    // 🚀 THE KEY: Manually clear the navigation params
+    // This prevents the "Quote" or "Edit" data from persisting
+    navigation.setParams({
+      quoteMode: false,
+      parentPost: null,
+      editMode: false,
+      postData: null,
+      initialType: null,
+      leagueId: null,
+      leagueName: null,
+    });
+  }, [navigation]);
 
-  // --- 3. EFFECTS ---
-
-  // Handle Edit Mode Setup - only runs when entering edit mode
+  // 2. Handle Edit Mode Setup
   useEffect(() => {
-    if (editMode && postData) {
+    if (isFocused && editMode && postData) {
       setContent(postData.content || '');
       setSelectedLeague(postData.league || leagueId);
       setSelectedName(postData.league_name || leagueName);
       setPostType(postData.is_short ? 'short' : 'standard');
-
       if (postData.media_file) {
         setMediaList([{ uri: postData.media_file, isExisting: true }]);
       }
       navigation.setOptions({ title: 'Edit Post' });
     }
-  }, [editMode, postData]);
+  }, [isFocused, editMode, postData]);
 
-  // Clean up state and params when navigating AWAY
+  // 3. Handle Quote Mode Setup (Optional but recommended for clarity)
+  useEffect(() => {
+    if (isFocused && quoteMode && parentPost) {
+      // If quoting, you might want to default to the parent's league
+      if (parentPost.league && !selectedLeague) {
+        setSelectedLeague(parentPost.league);
+        setSelectedName(parentPost.supporting_info?.league_name || '');
+      }
+      navigation.setOptions({ title: 'Quote Post' });
+    } else if (isFocused && !editMode) {
+      navigation.setOptions({ title: 'Create Post' });
+    }
+  }, [isFocused, quoteMode, parentPost]);
+
+  // 4. Trigger reset when leaving
   useEffect(() => {
     if (!isFocused) {
       resetForm();
-
-      // Only clear params if they exist to prevent infinite update loop
-      if (route.params?.editMode || route.params?.postData) {
-        navigation.setParams({
-          editMode: false,
-          postData: null,
-          postType: null,
-          leagueId: null,
-          leagueName: null,
-        });
-      }
     }
   }, [isFocused, resetForm]);
-
-  const leagues = [
-    { id: 1, name: 'Premier League' },
-    { id: 2, name: 'La Liga' },
-    { id: 3, name: 'NBA' },
-    { id: 4, name: 'Champions League' },
-  ];
-
   const pickMedia = async () => {
     const options = {
       mediaType: postType === 'short' ? 'video' : 'mixed',
       selectionLimit: 1,
       quality: 0.8,
     };
-
     const result = await launchImageLibrary(options);
     if (result.didCancel) return;
-    if (result.assets) {
-      setMediaList(result.assets);
-    }
+    if (result.assets) setMediaList(result.assets);
   };
 
   const handlePost = async () => {
-    if (!content.trim() && mediaList.length === 0) return;
-    if (postType === 'short' && mediaList.length === 0) {
+    const { quoteMode, parentPost, editMode, postData, onEditSuccess } =
+      route.params || {};
+
+    const hasContent = content.trim().length > 0;
+    const hasMedia = mediaList.length > 0;
+
+    // Validation
+    if (!hasContent && !hasMedia && !quoteMode) {
+      Alert.alert('Empty Post', 'Please add some text or media.');
+      return;
+    }
+
+    if (postType === 'short' && !hasMedia) {
       Alert.alert('Required', 'Please select a video for your Short.');
       return;
     }
 
     setLoading(true);
-
     const formData = new FormData();
-    formData.append('content', content);
-    formData.append('league', selectedLeague || '');
-    formData.append('is_short', postType === 'short');
 
+    // 1. Core Fields
+    formData.append('content', content.trim());
+    formData.append('is_short', String(postType === 'short')); // FormData likes strings for booleans
+
+    // 2. 🚀 QUOTE & LEAGUE LOGIC
+    if (quoteMode && parentPost) {
+      // Ensure we send the ID as a string/number clearly
+      formData.append('parent_post', parentPost.id.toString());
+
+      // Fallback: If no league selected, use the parent post's league
+      const leagueToAttach = selectedLeague || parentPost.league || '';
+      formData.append('league', leagueToAttach.toString());
+    } else {
+      formData.append(
+        'league',
+        selectedLeague ? selectedLeague.toString() : '',
+      );
+    }
+
+    // 3. Media Processing
     const newMedia = mediaList.filter(m => !m.isExisting);
     if (newMedia.length > 0) {
       newMedia.forEach((media, index) => {
+        const fileUri =
+          Platform.OS === 'android'
+            ? media.uri
+            : media.uri.replace('file://', '');
+
         formData.append('media_file', {
-          uri:
-            Platform.OS === 'android'
-              ? media.uri
-              : media.uri.replace('file://', ''),
+          uri: fileUri,
+          // Ensure type fallback is safe
           type:
             media.type || (postType === 'short' ? 'video/mp4' : 'image/jpeg'),
           name:
             media.fileName ||
-            `upload_${index}.${postType === 'short' ? 'mp4' : 'jpg'}`,
+            `upload_${Date.now()}_${index}.${
+              postType === 'short' ? 'mp4' : 'jpg'
+            }`,
         });
       });
     }
 
     try {
+      const config = {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      };
+
       let response;
       if (editMode) {
-        response = await api.patch(`api/posts/${postData.id}/`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        response = await api.patch(
+          `api/posts/${postData.id}/`,
+          formData,
+          config,
+        );
         if (onEditSuccess) onEditSuccess(response.data);
       } else {
-        response = await api.post('api/posts/', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        response = await api.post('api/posts/', formData, config);
       }
 
-      // Success logic
-      setLoading(false); // Stop spinner immediately after response
+      setLoading(false);
       Alert.alert('Success', editMode ? 'Updated!' : 'Shared!', [
         {
           text: 'OK',
           onPress: () => {
-            resetForm();
+            // 🚀 Optional: Trigger a refresh on the previous screen
+            if (route.params?.refreshFeed) route.params.refreshFeed();
             navigation.goBack();
           },
         },
       ]);
     } catch (err) {
       setLoading(false);
-      Alert.alert('Error', 'Could not save post.');
-      console.error(err);
+      // 💡 Pro-tip: Log the actual backend error to see if it's a 400 (Bad Request)
+      const backendError = err.response?.data;
+      console.log(
+        '--- ❌ FULL BACKEND ERROR ---',
+        JSON.stringify(backendError, null, 2),
+      );
+
+      Alert.alert('Error', 'Could not save post. Check console for details.');
     }
   };
-
-  // --- 4. CONDITIONAL RENDERING ---
-
+  // --- SELECTION SCREENS ---
   if (!postType && !editMode) {
     return (
       <View style={styles.container}>
@@ -192,7 +276,6 @@ export default function CreatePostScreen({ route, navigation }) {
             </Text>
           </View>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.typeItem, { borderColor: '#FF4B4B' }]}
           onPress={() => setPostType('short')}
@@ -222,7 +305,7 @@ export default function CreatePostScreen({ route, navigation }) {
         </TouchableOpacity>
         <Text style={styles.headerText}>Which league is this for?</Text>
         <FlatList
-          data={leagues}
+          data={userLeagues}
           keyExtractor={item => item.id.toString()}
           renderItem={({ item }) => (
             <TouchableOpacity
@@ -232,7 +315,17 @@ export default function CreatePostScreen({ route, navigation }) {
                 setSelectedName(item.name);
               }}
             >
-              <Text style={styles.leagueText}>{item.name}</Text>
+              <View style={styles.leagueRow}>
+                {item.logo && (
+                  <Image
+                    source={item.logo}
+                    style={styles.leagueLogo}
+                    resizeMode="contain"
+                  />
+                )}
+                <Text style={styles.leagueText}>{item.name}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#475569" />
             </TouchableOpacity>
           )}
         />
@@ -240,19 +333,22 @@ export default function CreatePostScreen({ route, navigation }) {
     );
   }
 
+  // --- MAIN EDITOR ---
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={{ paddingBottom: 40 }}
     >
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.postingTo}>
-            {postType === 'short' ? '🎥 Short' : '📝 Post'} in{' '}
-            <Text style={styles.leagueHighlight}>{selectedName}</Text>
-          </Text>
-        </View>
-        {!editMode && (
+        <Text style={styles.postingTo}>
+          {quoteMode
+            ? '🔄 Quoting'
+            : postType === 'short'
+            ? '🎥 Short'
+            : '📝 Post'}{' '}
+          in <Text style={styles.leagueHighlight}>{selectedName}</Text>
+        </Text>
+        {!editMode && !quoteMode && (
           <TouchableOpacity onPress={() => setSelectedLeague(null)}>
             <Text style={styles.changeBtn}>Change</Text>
           </TouchableOpacity>
@@ -262,15 +358,29 @@ export default function CreatePostScreen({ route, navigation }) {
       <TextInput
         style={styles.input}
         placeholder={
-          postType === 'short'
-            ? 'Add a caption for your highlight...'
-            : "What's on your mind?"
+          quoteMode ? 'Add a comment to this quote...' : "What's on your mind?"
         }
         placeholderTextColor="#94A3B8"
         multiline
         value={content}
         onChangeText={setContent}
+        autoFocus={quoteMode}
       />
+
+      {/* 🚀 QUOTE PREVIEW UI */}
+      {quoteMode && parentPost && (
+        <View style={styles.quotePreviewBox}>
+          <View style={styles.quotePreviewHeader}>
+            <Ionicons name="repeat" size={14} color="#1E90FF" />
+            <Text style={styles.quotePreviewUser}>
+              {parentPost.author_details?.display_name}
+            </Text>
+          </View>
+          <Text style={styles.quotePreviewText} numberOfLines={3}>
+            {parentPost.content}
+          </Text>
+        </View>
+      )}
 
       {mediaList.length > 0 && (
         <View style={styles.mediaRow}>
@@ -309,11 +419,7 @@ export default function CreatePostScreen({ route, navigation }) {
               { color: postType === 'short' ? '#FF4B4B' : '#1E90FF' },
             ]}
           >
-            {mediaList.length > 0
-              ? 'Replace'
-              : postType === 'short'
-              ? 'Select Video'
-              : 'Add Photo/Video'}
+            {mediaList.length > 0 ? 'Replace' : 'Add Media'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -321,16 +427,19 @@ export default function CreatePostScreen({ route, navigation }) {
       <TouchableOpacity
         style={[
           styles.postButton,
-          !content.trim() && mediaList.length === 0 && styles.disabledBtn,
+          !content.trim() &&
+            mediaList.length === 0 &&
+            !quoteMode &&
+            styles.disabledBtn,
         ]}
         onPress={handlePost}
-        disabled={loading || (!content.trim() && mediaList.length === 0)}
+        disabled={loading}
       >
         {loading ? (
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.postButtonText}>
-            {editMode ? 'Update' : 'Post'}
+            {editMode ? 'Update' : quoteMode ? 'Post Quote' : 'Post'}
           </Text>
         )}
       </TouchableOpacity>
@@ -361,12 +470,19 @@ const styles = StyleSheet.create({
   typeTitle: { color: '#1E90FF', fontSize: 18, fontWeight: 'bold' },
   typeDesc: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
   leagueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#162A3B',
-    padding: 18,
+    padding: 15,
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#1E293B',
   },
-  leagueText: { color: '#fff', fontSize: 16 },
+  leagueRow: { flexDirection: 'row', alignItems: 'center' },
+  leagueLogo: { width: 30, height: 30, marginRight: 15, borderRadius: 5 },
+  leagueText: { color: '#fff', fontSize: 16, fontWeight: '500' },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -379,9 +495,32 @@ const styles = StyleSheet.create({
   input: {
     color: '#fff',
     fontSize: 18,
-    minHeight: 120,
+    minHeight: 100,
     textAlignVertical: 'top',
   },
+
+  // 🚀 QUOTE PREVIEW STYLES
+  quotePreviewBox: {
+    backgroundColor: '#162A3B',
+    padding: 15,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#1E90FF',
+    marginVertical: 10,
+  },
+  quotePreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  quotePreviewUser: {
+    color: '#1E90FF',
+    fontWeight: 'bold',
+    marginLeft: 8,
+    fontSize: 13,
+  },
+  quotePreviewText: { color: '#CBD5E1', fontSize: 14, lineHeight: 20 },
+
   mediaRow: { marginVertical: 15 },
   previewWrapper: { position: 'relative', width: 100 },
   thumbnail: {

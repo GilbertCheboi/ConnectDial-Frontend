@@ -1,177 +1,115 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React from 'react';
 import {
   View,
-  FlatList,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
-  Text,
-  RefreshControl,
+  SafeAreaView,
+  Platform,
 } from 'react-native';
+import { Tabs, MaterialTabBar } from 'react-native-collapsible-tab-view';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import api from '../api/client';
-import PostCard from '../components/PostCard';
+import FeedList from '../components/FeedList';
 
 export default function HomeScreen({ route, navigation }) {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
   const leagueId = route.params?.leagueId;
-  const leagueName = route.params?.leagueName;
 
-  useEffect(() => {
-    fetchPosts();
-    navigation.setOptions({
-      title: leagueName ? leagueName : 'Home Feed',
-    });
-  }, [leagueId, leagueName]);
-
-  const fetchPosts = async (showRefreshing = false) => {
-    if (showRefreshing) setIsRefreshing(true);
-    else setLoading(true);
-
-    try {
-      const url = leagueId ? `api/posts/?league=${leagueId}` : 'api/posts/';
-      const response = await api.get(url);
-      const incomingPosts = response.data.results || response.data;
-      setPosts(incomingPosts);
-    } catch (err) {
-      console.log('--- ❌ API ERROR ---', err);
-    } finally {
-      setLoading(false);
-      setIsRefreshing(false);
-    }
-  };
-
-  const removePostFromState = useCallback(postId => {
-    setPosts(currentPosts => currentPosts.filter(post => post.id !== postId));
-  }, []);
-
-  // --- 🚀 NEW: Update comment count locally ---
-  const handleCommentPress = post => {
-    navigation.navigate('Comments', {
-      postId: post.id,
-      // This function runs when a comment is successfully posted
-      onCommentAdded: () => {
-        setPosts(currentPosts =>
-          currentPosts.map(p =>
-            p.id === post.id
-              ? { ...p, comments_count: (p.comments_count || 0) + 1 }
-              : p,
-          ),
-        );
-      },
-    });
-  };
-
-  const handleEditPost = post => {
-    navigation.navigate('CreatePost', {
-      editMode: true,
-      postData: post,
-      onEditSuccess: updatedPost => {
-        setPosts(prev =>
-          prev.map(p => (p.id === updatedPost.id ? updatedPost : p)),
-        );
-      },
-    });
-  };
+  // 🚀 CUSTOM PREMIUM TAB BAR
+  const renderTabBar = props => (
+    <MaterialTabBar
+      {...props}
+      style={styles.tabBar}
+      indicatorStyle={styles.indicator}
+      activeColor="#FFFFFF" // White text for active
+      inactiveColor="#64748B" // Muted slate for inactive
+      labelStyle={styles.label}
+      // This makes the tabs even across the screen
+      getLabelText={name => name}
+    />
+  );
 
   return (
     <View style={styles.container}>
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1E90FF" />
-          <Text style={styles.loadingText}>Fetching latest posts...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={posts}
-          keyExtractor={item => item.id.toString()}
-          renderItem={({ item }) => (
-            <PostCard
-              post={item}
-              onDeleteSuccess={removePostFromState}
-              onEditPress={handleEditPost}
-              // Pass the new handler to PostCard
-              onCommentPress={() => handleCommentPress(item)}
-            />
-          )}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={() => fetchPosts(true)}
-              tintColor="#1E90FF"
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.centered}>
-              <MaterialCommunityIcons
-                name="comment-off-outline"
-                size={50}
-                color="#94A3B8"
-              />
-              <Text style={styles.empty}>No posts found.</Text>
-            </View>
-          }
-        />
-      )}
+      {/* 🚀 Safe Area prevents the tabs from overlapping the clock/battery */}
+      <SafeAreaView style={{ backgroundColor: '#0D1F2D' }} />
+
+      <Tabs.Container
+        renderTabBar={renderTabBar}
+        headerHeight={0}
+        revealHeaderOnScroll={true}
+        snapThreshold={0.5}
+        // 🚀 This adds a subtle "snap" effect for a more native feel
+        headerContainerStyle={styles.tabContainerShadow}
+      >
+        <Tabs.Tab name="Global">
+          <FeedList feedType="global" leagueId={leagueId} />
+        </Tabs.Tab>
+        <Tabs.Tab name="Following">
+          <FeedList feedType="following" leagueId={leagueId} />
+        </Tabs.Tab>
+      </Tabs.Container>
+
+      {/* 🚀 GLOWING FAB (Floating Action Button) */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('CreatePost')}
+        activeOpacity={0.8}
+      >
+        <MaterialCommunityIcons name="pencil-plus" size={28} color="#fff" />
+      </TouchableOpacity>
     </View>
   );
 }
 
-// ... styles remain the same
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#050B10', // 🚀 Darker background for better contrast with cards
+  },
+  tabBar: {
     backgroundColor: '#0D1F2D',
+    height: 50,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#1E293B',
+    elevation: 0,
+    shadowOpacity: 0,
   },
-  listContent: {
-    flexGrow: 1,
-    paddingBottom: 100, // Space for the FAB
+  tabContainerShadow: {
+    // Adds a very subtle shadow only when the tab bar is visible
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    marginTop: 50,
+  indicator: {
+    backgroundColor: '#1E90FF',
+    height: 3,
+    borderRadius: 3,
+    // Makes the indicator slightly shorter than the full tab width for a "chic" look
+    width: '30%',
+    marginLeft: '10%',
   },
-  loadingText: {
-    color: '#94A3B8',
-    marginTop: 10,
+  label: {
+    fontWeight: '700',
+    textTransform: 'none',
     fontSize: 14,
-  },
-  empty: {
-    color: '#94A3B8',
-    textAlign: 'center',
-    fontSize: 16,
-    marginTop: 10,
-  },
-  refreshBtn: {
-    marginTop: 15,
-    padding: 10,
-  },
-  refreshText: {
-    color: '#1E90FF',
-    fontWeight: 'bold',
+    letterSpacing: 0.3,
   },
   fab: {
     position: 'absolute',
-    right: 25,
-    bottom: 25,
+    right: 20,
+    bottom: 30,
     backgroundColor: '#1E90FF',
-    width: 65,
-    height: 65,
-    borderRadius: 32.5,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
+    elevation: 10,
+    // 🚀 Added a "Glow" effect for the blue button
+    shadowColor: '#1E90FF',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
   },
 });

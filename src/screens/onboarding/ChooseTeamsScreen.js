@@ -13,6 +13,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../../store/authStore';
 import api from '../../api/client';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // Local assets for teams
 const teamsByLeague = {
@@ -470,23 +471,28 @@ const teamsByLeague = {
   ],
 };
 
+// ... (Keep your teamsByLeague object exactly as it was) ...
+
 export default function ChooseTeamsScreen({ route }) {
-  // --- 1. HOOKS ALWAYS AT THE TOP (Unconditional) ---
   const navigation = useNavigation();
   const { setIsNew } = useContext(AuthContext);
 
-  // --- 2. STATE & PARAMS ---
-  const { selectedLeagues } = route.params || { selectedLeagues: [] };
+  // 🚀 PARAMS: Extract selectedLeagues and the mode (add vs onboarding)
+  const { selectedLeagues, mode } = route.params || {
+    selectedLeagues: [],
+    mode: 'onboarding',
+  };
+  const isAddingNew = mode === 'add';
+
   const [selectedTeams, setSelectedTeams] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- 3. HANDLERS ---
   const selectTeam = (leagueId, teamId) => {
     setSelectedTeams(prev => ({ ...prev, [leagueId]: teamId }));
   };
 
   const handleOnboardingSubmit = async () => {
-    // Validation
+    // Validation: Ensure one team per selected league
     if (Object.keys(selectedTeams).length !== selectedLeagues.length) {
       Alert.alert(
         'Selection Incomplete',
@@ -497,6 +503,7 @@ export default function ChooseTeamsScreen({ route }) {
 
     setIsSubmitting(true);
 
+    // 🚀 PAYLOAD: Add append_mode so Django doesn't delete existing follows
     const payload = {
       fan_preferences: Object.entries(selectedTeams).map(
         ([leagueId, teamId]) => ({
@@ -504,46 +511,77 @@ export default function ChooseTeamsScreen({ route }) {
           team: teamId,
         }),
       ),
+      append_mode: isAddingNew, // Sent to your updated Django Serializer
     };
 
     try {
-      console.log('Step 1: Sending preferences to Django...');
-      const response = await api.post('auth/onboarding/', payload);
-      console.log('Step 2: Backend Success!', response.status);
+      await api.post('auth/onboarding/', payload);
 
-      // Navigate to CreateProfile
-      console.log('Step 3: Navigating to CreateProfile...');
-      navigation.navigate('CreateProfile');
-    } catch (error) {
-      console.error('Onboarding Submit Error:', error);
-      let msg = "We couldn't save your preferences.";
-      if (error.response?.data) {
-        msg =
-          typeof error.response.data === 'object'
-            ? JSON.stringify(error.response.data)
-            : error.response.data;
+      if (isAddingNew) {
+        // 🚀 SUCCESS: Go back to Profile if we were just adding a league
+        Alert.alert('Success', 'Your new team follows have been added!');
+        navigation.navigate('MainApp', { screen: 'Profile' });
       } else {
-        msg = error.message;
+        // SUCCESS: Continue normal onboarding flow
+        navigation.navigate('CreateProfile');
       }
-      Alert.alert('System Error', msg);
+    } catch (error) {
+      console.error('Submit Error:', error);
+      Alert.alert(
+        'System Error',
+        "We couldn't save your preferences. Please try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Helper to get League Name from ID (Optional: you could pass names in params too)
+  const getLeagueName = id => {
+    const names = {
+      1: 'Premier League',
+      2: 'NBA',
+      3: 'NFL',
+      4: 'F1',
+      5: 'Champions League',
+      6: 'MLB',
+      7: 'NHL',
+      8: 'La Liga',
+      9: 'Serie A',
+      10: 'Bundesliga',
+      11: 'Ligue 1',
+      12: 'Afcon',
+    };
+    return names[id] || `League ${id}`;
+  };
+
   return (
     <View style={styles.wrapper}>
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Pick One Team Per League</Text>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Select Your Teams</Text>
+          <Text style={styles.subtitle}>
+            Pick the team you support in each of your selected leagues.
+          </Text>
+        </View>
 
         {selectedLeagues.map(leagueId => (
           <View key={leagueId} style={styles.leagueSection}>
-            <Text style={styles.leagueTitle}>League {leagueId}</Text>
+            <View style={styles.leagueHeader}>
+              <MaterialCommunityIcons
+                name="trophy-outline"
+                size={18}
+                color="#1E90FF"
+              />
+              <Text style={styles.leagueTitle}>{getLeagueName(leagueId)}</Text>
+            </View>
+
             <FlatList
               data={teamsByLeague[leagueId] || []}
               keyExtractor={item => item.id.toString()}
               horizontal
               showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.teamList}
               renderItem={({ item }) => {
                 const isSelected = selectedTeams[leagueId] === item.id;
                 return (
@@ -553,7 +591,7 @@ export default function ChooseTeamsScreen({ route }) {
                       styles.teamCard,
                       isSelected && styles.teamCardSelected,
                     ]}
-                    activeOpacity={0.7}
+                    activeOpacity={0.8}
                   >
                     <Image source={item.logo} style={styles.teamLogo} />
                     <Text
@@ -561,16 +599,26 @@ export default function ChooseTeamsScreen({ route }) {
                         styles.teamName,
                         isSelected && styles.teamNameSelected,
                       ]}
+                      numberOfLines={1}
                     >
                       {item.name}
                     </Text>
+                    {isSelected && (
+                      <View style={styles.checkIcon}>
+                        <MaterialCommunityIcons
+                          name="check-circle"
+                          size={16}
+                          color="#fff"
+                        />
+                      </View>
+                    )}
                   </TouchableOpacity>
                 );
               }}
             />
           </View>
         ))}
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
 
       <View style={styles.footer}>
@@ -585,7 +633,11 @@ export default function ChooseTeamsScreen({ route }) {
           {isSubmitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.submitText}>Continue to Profile</Text>
+            <Text style={styles.submitText}>
+              {isAddingNew
+                ? 'Confirm & Back to Profile'
+                : 'Continue to Profile Setup'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -595,46 +647,63 @@ export default function ChooseTeamsScreen({ route }) {
 
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#0D1F2D' },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 40 },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 30,
-    textAlign: 'center',
-  },
-  leagueSection: { marginBottom: 30 },
-  leagueTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1E90FF',
+  container: { flex: 1 },
+  header: { paddingHorizontal: 20, paddingTop: 50, marginBottom: 20 },
+  title: { fontSize: 28, fontWeight: '900', color: '#fff' },
+  subtitle: { fontSize: 14, color: '#64748B', marginTop: 5 },
+
+  leagueSection: { marginBottom: 25 },
+  leagueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
     marginBottom: 12,
   },
+  leagueTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+    marginLeft: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  teamList: { paddingLeft: 20, paddingRight: 10 },
   teamCard: {
     width: 110,
     height: 130,
     backgroundColor: '#1A2A3D',
-    borderRadius: 12,
+    borderRadius: 16,
     marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#2A3A4D',
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#1E293B',
+    position: 'relative',
   },
   teamCardSelected: {
-    backgroundColor: '#1E90FF',
-    borderColor: '#fff',
-    elevation: 5,
+    backgroundColor: '#0D1F2D',
+    borderColor: '#1E90FF',
+    borderWidth: 2,
   },
-  teamLogo: { width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 },
-  teamName: { fontSize: 14, color: '#BDC3C7', textAlign: 'center' },
-  teamNameSelected: { fontWeight: 'bold', color: '#fff' },
+  checkIcon: { position: 'absolute', top: 8, right: 8 },
+  teamLogo: { width: 55, height: 55, resizeMode: 'contain', marginBottom: 10 },
+  teamName: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  teamNameSelected: { color: '#fff', fontWeight: '800' },
+
   footer: {
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
     padding: 20,
     backgroundColor: '#0D1F2D',
     borderTopWidth: 1,
-    borderTopColor: '#1A2A3D',
+    borderTopColor: '#1E293B',
   },
   submitButton: {
     backgroundColor: '#1E90FF',
@@ -642,7 +711,12 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#1E90FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
   },
-  submitButtonDisabled: { backgroundColor: '#555' },
-  submitText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  submitButtonDisabled: { backgroundColor: '#1A2A3D' },
+  submitText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });

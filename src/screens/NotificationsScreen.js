@@ -1,5 +1,9 @@
-// src/screens/NotificationsScreen.js
-import React, { useState } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useLayoutEffect,
+} from 'react';
 import {
   View,
   Text,
@@ -7,76 +11,177 @@ import {
   FlatList,
   TouchableOpacity,
   Image,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import api from '../api/client';
+import { useNotifications } from '../store/NotificationContext';
 
-const MOCK_NOTIFICATIONS = [
-  {
-    id: '1',
-    type: 'like',
-    user: 'GreenFan99',
-    content: 'liked your post about the finals.',
-    time: '2m',
-    image: 'https://via.placeholder.com/50',
-    read: false,
-  },
-  {
-    id: '2',
-    type: 'follow',
-    user: 'UltraSoccer',
-    content: 'started following you.',
-    time: '1h',
-    image: 'https://via.placeholder.com/50',
-    read: true,
-  },
-  {
-    id: '3',
-    type: 'system',
-    user: 'ConnectDial',
-    content: 'Your profile is 100% complete! Check out new features.',
-    time: '3h',
-    image: null,
-    read: true,
-  },
-];
+export default function NotificationScreen({ navigation }) {
+  const { setUnreadCount, fetchUnreadCount } = useNotifications();
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-export default function NotificationsScreen() {
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={[styles.notificationItem, !item.read && styles.unreadBackground]}
-    >
-      <View style={styles.leftSection}>
-        {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.systemIcon]}>
-            <Ionicons name="notifications" size={20} color="#1E90FF" />
-          </View>
-        )}
-        <View style={styles.textContainer}>
-          <Text style={styles.notificationText}>
-            <Text style={styles.username}>{item.user} </Text>
-            {item.content}
-          </Text>
-          <Text style={styles.timeText}>{item.time}</Text>
-        </View>
-      </View>
-      {!item.read && <View style={styles.unreadDot} />}
-    </TouchableOpacity>
+  // --- 1. BULK ACTION: MARK ALL AS READ ---
+  const markAllAsRead = async () => {
+    try {
+      await api.post('api/notifications/mark-all-read/');
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Clear notifications error:', error);
+      Alert.alert('Notice', 'Could not clear notifications at this time.');
+    }
+  };
+
+  // --- 2. DYNAMIC HEADER CONFIG ---
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      headerTitle: 'Notifications',
+      headerStyle: { backgroundColor: '#0D1F2D' },
+      headerTintColor: '#fff',
+      headerRight: () => (
+        <TouchableOpacity onPress={markAllAsRead} style={styles.headerButton}>
+          <Ionicons name="checkmark-done" size={24} color="#1E90FF" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, notifications]);
+
+  // --- 3. API DATA FETCHING ---
+  const fetchNotifications = useCallback(
+    async (showRefreshing = false) => {
+      if (showRefreshing) setIsRefreshing(true);
+
+      try {
+        const response = await api.get('api/notifications/');
+        const data = response.data.results || response.data;
+        setNotifications(data);
+        fetchUnreadCount(); // Sync global badge count
+      } catch (error) {
+        console.error('Fetch Error:', error);
+      } finally {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [fetchUnreadCount],
   );
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  // --- 4. NAVIGATION & READ STATUS LOGIC ---
+  const handlePress = async item => {
+    if (item.post) {
+      navigation.navigate('PostDetail', { postId: item.post });
+    }
+
+    if (!item.is_read) {
+      try {
+        await api.patch(`api/notifications/${item.id}/`, { is_read: true });
+        setNotifications(prev =>
+          prev.map(n => (n.id === item.id ? { ...n, is_read: true } : n)),
+        );
+        fetchUnreadCount();
+      } catch (e) {
+        console.log('Status update failed', e);
+      }
+    }
+  };
+
+  // --- 5. RENDER NOTIFICATION ITEM ---
+  const renderItem = ({ item }) => {
+    const profile = item.sender_profile; // 🚀 Data from your ProfileSerializer
+
+    const getIconConfig = () => {
+      switch (item.notification_type) {
+        case 'like':
+          return { name: 'heart', color: '#FF4B4B' };
+        case 'follow':
+          return { name: 'person-add', color: '#1E90FF' };
+        case 'comment':
+          return { name: 'chatbubble-ellipses', color: '#10B981' };
+        case 'repost':
+          return { name: 'repeat', color: '#8B5CF6' };
+        default:
+          return { name: 'notifications', color: '#94A3B8' };
+      }
+    };
+
+    const icon = getIconConfig();
+
+    return (
+      <TouchableOpacity
+        style={[styles.item, !item.is_read && styles.unreadBg]}
+        onPress={() => handlePress(item)}
+      >
+        <View style={styles.avatarWrapper}>
+          <Image
+            source={{
+              uri: profile?.profile_image || 'https://via.placeholder.com/150',
+            }}
+            style={styles.avatar}
+          />
+          <View style={[styles.badge, { backgroundColor: icon.color }]}>
+            <Ionicons name={icon.name} size={10} color="#fff" />
+          </View>
+        </View>
+
+        <View style={styles.textWrapper}>
+          <Text style={styles.message} numberOfLines={2}>
+            <Text style={styles.username}>
+              {profile?.display_name || profile?.username || 'User'}{' '}
+            </Text>
+            {item.notification_type === 'like' && 'liked your post.'}
+            {item.notification_type === 'follow' && 'started following you.'}
+            {item.notification_type === 'comment' && 'replied to your post.'}
+            {item.notification_type === 'repost' && 'reposted your content.'}
+          </Text>
+          <Text style={styles.time}>{item.time_ago}</Text>
+        </View>
+
+        {!item.is_read && <View style={styles.dot} />}
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#1E90FF" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Notifications</Text>
-      </View>
       <FlatList
-        data={MOCK_NOTIFICATIONS}
-        keyExtractor={item => item.id}
+        data={notifications}
+        keyExtractor={item => item.id.toString()}
         renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => fetchNotifications(true)}
+            tintColor="#1E90FF"
+          />
+        }
         ListEmptyComponent={
-          <Text style={styles.emptyText}>No notifications yet.</Text>
+          <View style={styles.centered}>
+            <Ionicons
+              name="notifications-off-outline"
+              size={60}
+              color="#1E293B"
+            />
+            <Text style={styles.emptyText}>No activity to show.</Text>
+          </View>
         }
       />
     </View>
@@ -84,36 +189,52 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D1F2D' },
-  header: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#162A3B' },
-  headerTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
-  listContent: { paddingVertical: 10 },
-  notificationItem: {
+  container: { flex: 1, backgroundColor: '#050B10' },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#050B10',
+  },
+  headerButton: { marginRight: 15, padding: 5 },
+  listContainer: { paddingBottom: 20 },
+  item: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 15,
-    borderBottomWidth: 1,
+    padding: 16,
+    borderBottomWidth: 0.5,
     borderBottomColor: '#162A3B',
   },
-  unreadBackground: { backgroundColor: '#112233' },
-  leftSection: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  unreadBg: { backgroundColor: 'rgba(30, 144, 255, 0.04)' },
+  avatarWrapper: { position: 'relative' },
   avatar: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#162A3B',
   },
-  systemIcon: { justifyContent: 'center', alignItems: 'center' },
-  textContainer: { marginLeft: 15, flex: 1 },
-  notificationText: { color: '#fff', fontSize: 14, lineHeight: 20 },
-  username: { fontWeight: 'bold' },
-  timeText: { color: '#888', fontSize: 12, marginTop: 4 },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#1E90FF',
+  badge: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#050B10',
   },
-  emptyText: { color: '#888', textAlign: 'center', marginTop: 50 },
+  textWrapper: { flex: 1, marginLeft: 16 },
+  username: { color: '#fff', fontWeight: '700' },
+  message: { color: '#CBD5E1', fontSize: 14, lineHeight: 20 },
+  time: { color: '#64748B', fontSize: 12, marginTop: 4 },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#1E90FF',
+    marginLeft: 10,
+  },
+  emptyText: { color: '#475569', fontSize: 16, marginTop: 12 },
 });

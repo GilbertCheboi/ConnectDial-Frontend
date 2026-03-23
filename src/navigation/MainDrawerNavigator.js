@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useMemo, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import {
   createDrawerNavigator,
@@ -15,6 +16,7 @@ import {
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // Internal Imports
+import api from '../api/client';
 import { AuthContext } from '../store/authStore';
 import MainTabNavigator from './MainTabNavigator';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -23,16 +25,75 @@ import SettingsScreen from '../screens/SettingsScreen';
 const Drawer = createDrawerNavigator();
 const { width } = Dimensions.get('window');
 
-function CustomDrawerContent(props) {
-  const { logout, user } = useContext(AuthContext);
+// 🚀 LEAGUE ASSETS MAPPING
+const LEAGUE_MAP = {
+  1: { name: 'Premier League', logo: require('../screens/assets/epl.png') },
+  2: { name: 'NBA', logo: require('../screens/assets/NBA.jpeg') },
+  3: { name: 'NFL', logo: require('../screens/assets/NFL.png') },
+  4: { name: 'F1', logo: require('../screens/assets/F1.png') },
+  5: {
+    name: 'Champions League',
+    logo: require('../screens/assets/Champions_League.png'),
+  },
+  6: { name: 'MLB', logo: require('../screens/assets/MLB.png') },
+  7: { name: 'NHL', logo: require('../screens/assets/NHL-logo.jpg') },
+  8: { name: 'La Liga', logo: require('../screens/assets/laliga.png') },
+  9: { name: 'Serie A', logo: require('../screens/assets/Serie_A.png') },
+  10: { name: 'Bundesliga', logo: require('../screens/assets/bundesliga.jpg') },
+  11: { name: 'Ligue 1', logo: require('../screens/assets/Ligue1_logo.png') },
+  12: { name: 'Afcon', logo: require('../screens/assets/Afcon.png') },
+};
 
-  // This list matches your onboarding/backend IDs
-  const leagues = [
-    { id: 1, name: 'Premier League', icon: 'soccer' },
-    { id: 2, name: 'La Liga', icon: 'soccer' },
-    { id: 3, name: 'NBA', icon: 'basketball' },
-    { id: 4, name: 'Champions League', icon: 'trophy' },
-  ];
+function CustomDrawerContent(props) {
+  const { logout, user: authUser } = useContext(AuthContext);
+  const [profile, setProfile] = useState(null);
+  const [fetching, setFetching] = useState(false);
+
+  // 🚀 1. FETCH LATEST PROFILE DATA (Same logic as ProfileScreen)
+  const fetchLatestProfile = async () => {
+    try {
+      setFetching(true);
+      const response = await api.get('auth/update/');
+      const data = response.data.data || response.data;
+      setProfile(data);
+    } catch (err) {
+      console.error('Drawer Profile Fetch Error:', err);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLatestProfile();
+  }, [authUser]); // Re-run if auth state changes
+
+  // 🚀 2. DYNAMIC LEAGUES CALCULATION
+  const userLeagues = useMemo(() => {
+    // Use profile data if fetched, otherwise fallback to authUser
+    const sourceData = profile || authUser;
+    if (
+      !sourceData?.fan_preferences ||
+      !Array.isArray(sourceData.fan_preferences)
+    )
+      return [];
+
+    const uniqueLeagues = [];
+    const seenIds = new Set();
+
+    sourceData.fan_preferences.forEach(pref => {
+      const id = pref.league;
+      if (id && !seenIds.has(id)) {
+        seenIds.add(id);
+        const details = LEAGUE_MAP[id] || { name: `League ${id}`, logo: null };
+        uniqueLeagues.push({ id, ...details });
+      }
+    });
+
+    return uniqueLeagues.sort((a, b) => a.id - b.id);
+  }, [profile, authUser]);
+
+  // Use profile for display, fallback to authUser
+  const displayData = profile || authUser;
 
   return (
     <View style={styles.drawerWrapper}>
@@ -40,82 +101,116 @@ function CustomDrawerContent(props) {
         {...props}
         contentContainerStyle={{ paddingTop: 0 }}
       >
-        {/* --- 1. PROFILE HEADER --- */}
+        {/* --- 1. PROFILE HEADER WITH BANNER --- */}
         <TouchableOpacity
-          style={styles.profileHeader}
+          activeOpacity={0.9}
           onPress={() => props.navigation.navigate('Profile')}
         >
-          <Image
-            source={{
-              uri: `https://ui-avatars.com/api/?name=${
-                user?.username || 'G'
-              }&background=1E90FF&color=fff&bold=true`,
-            }}
-            style={styles.avatar}
-          />
-          <View>
-            <Text style={styles.userName}>{user?.username || 'Gilly'}</Text>
-            <Text style={styles.userHandle}>
-              @{user?.username?.toLowerCase() || 'gilly'}
-            </Text>
-          </View>
+          <View style={styles.bannerContainer}>
+            <Image
+              source={{
+                uri:
+                  displayData?.banner_image ||
+                  'https://images.unsplash.com/photo-1504450758481-7338eba7524a?q=80&w=800&auto=format&fit=crop',
+              }}
+              style={styles.bannerImage}
+            />
+            <View style={styles.bannerOverlay} />
 
-          <View style={styles.statsRow}>
-            <Text style={styles.statText}>
-              <Text style={styles.statNumber}>128</Text> Following
-            </Text>
-            <Text style={[styles.statText, { marginLeft: 15 }]}>
-              <Text style={styles.statNumber}>450</Text> Followers
-            </Text>
+            <View style={styles.headerContent}>
+              <Image
+                source={{
+                  uri:
+                    displayData?.profile_image ||
+                    `https://ui-avatars.com/api/?name=${displayData?.username}&background=1E90FF&color=fff`,
+                }}
+                style={styles.avatar}
+              />
+              <View style={styles.textContainer}>
+                <Text style={styles.userName} numberOfLines={1}>
+                  {displayData?.display_name || displayData?.username || 'Fan'}
+                </Text>
+                <Text style={styles.userHandle} numberOfLines={1}>
+                  @{displayData?.username || 'user'}
+                </Text>
+              </View>
+            </View>
           </View>
         </TouchableOpacity>
 
         <View style={styles.divider} />
 
-        {/* --- 2. GLOBAL FEED (ALL POSTS) --- */}
+        {/* --- 2. GLOBAL FEED --- */}
         <DrawerItem
           label="All Sports Feed"
           labelStyle={styles.globalLabel}
-          icon={({ color, size }) => (
+          icon={() => (
             <MaterialCommunityIcons name="earth" color="#1E90FF" size={24} />
           )}
-          onPress={() => {
-            // Passing leagueId: null clears the filter in your Home screen
+          onPress={() =>
             props.navigation.navigate('ConnectDial', {
               screen: 'Home',
-              params: { leagueId: null, leagueName: 'All Sports' },
-            });
-          }}
+              params: { leagueId: null },
+            })
+          }
         />
 
         <View style={styles.divider} />
 
-        {/* --- 3. LEAGUE NAVIGATION --- */}
-        <Text style={styles.sectionTitle}>Your Leagues</Text>
-        {leagues.map(league => (
+        {/* --- 3. DYNAMIC LEAGUES --- */}
+        {userLeagues.length > 0 && (
+          <Text style={styles.sectionTitle}>Your Leagues</Text>
+        )}
+
+        {userLeagues.map(league => (
           <DrawerItem
             key={league.id}
             label={league.name}
             labelStyle={styles.leagueLabel}
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name={league.icon}
-                color="#94A3B8"
-                size={22}
-              />
-            )}
-            onPress={() => {
-              // Navigates to Home and filters by the specific League ID
+            icon={() =>
+              league.logo ? (
+                <Image
+                  source={league.logo}
+                  style={styles.leagueLogo}
+                  resizeMode="contain"
+                />
+              ) : (
+                <MaterialCommunityIcons
+                  name="trophy-outline"
+                  color="#94A3B8"
+                  size={22}
+                />
+              )
+            }
+            onPress={() =>
               props.navigation.navigate('ConnectDial', {
                 screen: 'Home',
-                params: { leagueId: league.id, leagueName: league.name },
-              });
-            }}
+                params: { leagueId: league.id },
+              })
+            }
           />
         ))}
+
+        <DrawerItem
+          label="Manage Leagues"
+          labelStyle={[styles.leagueLabel, { color: '#1E90FF' }]}
+          icon={() => (
+            <MaterialCommunityIcons
+              name="plus-circle-outline"
+              color="#1E90FF"
+              size={22}
+            />
+          )}
+          onPress={() =>
+            props.navigation.navigate('Onboarding', {
+              screen: 'SelectLeagues',
+              params: { mode: 'edit' },
+            })
+          }
+        />
       </DrawerContentScrollView>
 
-      {/* --- 4. FOOTER: SETTINGS & LOGOUT --- */}
+      {/* --- 4. FOOTER --- */}
       <View style={styles.footerContainer}>
         <DrawerItem
           label="Settings"
@@ -149,29 +244,14 @@ export default function MainDrawerNavigator() {
       screenOptions={{
         headerStyle: {
           backgroundColor: '#0D1F2D',
-          elevation: 0,
-          shadowOpacity: 0,
           borderBottomWidth: 1,
           borderBottomColor: '#1E293B',
         },
         headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-          letterSpacing: 0.5,
-        },
-        drawerStyle: {
-          backgroundColor: '#0D1F2D',
-          width: width * 0.75, // Responsive width
-        },
-        drawerType: 'front',
-        overlayColor: 'rgba(0,0,0,0.7)',
+        drawerStyle: { backgroundColor: '#0D1F2D', width: width * 0.8 },
       }}
     >
-      <Drawer.Screen
-        name="ConnectDial"
-        component={MainTabNavigator}
-        options={{ title: 'ConnectDial' }}
-      />
+      <Drawer.Screen name="ConnectDial" component={MainTabNavigator} />
       <Drawer.Screen name="Profile" component={ProfileScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
     </Drawer.Navigator>
@@ -179,85 +259,63 @@ export default function MainDrawerNavigator() {
 }
 
 const styles = StyleSheet.create({
-  drawerWrapper: {
-    flex: 1,
-    backgroundColor: '#0D1F2D',
+  drawerWrapper: { flex: 1, backgroundColor: '#0D1F2D' },
+  bannerContainer: {
+    width: '100%',
+    marginBottom: 20,
+    marginTop: 20,
+    height: 160,
+    justifyContent: 'flex-end',
+    position: 'relative',
+    backgroundColor: '#112233',
   },
-  profileHeader: {
-    padding: 20,
-    paddingTop: 50,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+  bannerImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
+  bannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  headerContent: { paddingHorizontal: 15, paddingBottom: 15 },
   avatar: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    marginBottom: 12,
     borderWidth: 2,
     borderColor: '#1E90FF',
-    backgroundColor: '#1E293B',
+    marginBottom: 8,
   },
-  userName: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  userHandle: {
-    color: '#94A3B8',
-    fontSize: 14,
-    marginBottom: 15,
-  },
-  statsRow: {
-    flexDirection: 'row',
-  },
-  statText: {
-    color: '#94A3B8',
-    fontSize: 13,
-  },
-  statNumber: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
+  userName: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  userHandle: { color: '#CBD5E1', fontSize: 13 },
   divider: {
     height: 1,
     backgroundColor: '#1E293B',
-    marginVertical: 5,
-    marginHorizontal: 10,
+    marginVertical: 10,
+    marginHorizontal: 15,
   },
   globalLabel: {
     color: '#1E90FF',
     fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: -10, // Adjusts label closer to icon
+    marginLeft: -10,
   },
   sectionTitle: {
     color: '#64748B',
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '900',
     marginLeft: 20,
-    marginVertical: 15,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
+    marginVertical: 10,
+    letterSpacing: 1,
   },
-  leagueLabel: {
-    color: '#CBD5E1',
-    fontSize: 15,
-    fontWeight: '500',
-    marginLeft: -10,
-  },
+  leagueLabel: { color: '#CBD5E1', fontSize: 15, marginLeft: -10 },
+  leagueLogo: { width: 24, height: 24, borderRadius: 4 },
   footerContainer: {
     borderTopWidth: 1,
     borderTopColor: '#1E293B',
-    paddingBottom: 20,
-    backgroundColor: '#0D1F2D',
+    paddingBottom: 30,
   },
-  footerLabel: {
-    color: '#CBD5E1',
-    marginLeft: -10,
-  },
-  logoutLabel: {
-    color: '#EF4444',
-    fontWeight: 'bold',
-    marginLeft: -10,
-  },
+  logoutLabel: { color: '#EF4444', fontWeight: 'bold', marginLeft: -10 },
+  footerLabel: { color: '#CBD5E1', marginLeft: -10 },
 });
