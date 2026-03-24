@@ -1,66 +1,74 @@
-import React, { useEffect, useState, useCallback, useContext } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import {
   View,
   StyleSheet,
   ActivityIndicator,
   Text,
   RefreshControl,
-  TouchableOpacity,
 } from 'react-native';
+// 🚀 IMPORTANT: Ensure you are using Tabs.FlatList
 import { Tabs } from 'react-native-collapsible-tab-view';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import api from '../api/client';
 import PostCard from './PostCard';
 import { AuthContext } from '../store/authStore';
 import { useNavigation } from '@react-navigation/native';
 
-export default function FeedList({ feedType, leagueId }) {
+export default function FeedList({ feedType, leagueId, searchQuery }) {
   const { user } = useContext(AuthContext);
   const navigation = useNavigation();
   const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const CACHE_KEY = `@cache_${feedType}_${leagueId || 'home'}`;
+  const CACHE_KEY = `@cache_${feedType}_${leagueId || 'home'}_${
+    searchQuery || ''
+  }`;
 
-  // --- 1. INITIAL LOAD (Same as your old Home) ---
   useEffect(() => {
     const initialize = async () => {
+      // 🚀 THE GUARD: If we are on the Search tab but haven't typed anything yet,
+      // clear the list and don't fetch.
+      if (searchQuery === '') {
+        setPosts([]);
+        setLoading(false);
+        return;
+      }
+
       await loadCachedPosts();
       await fetchPosts();
     };
     initialize();
-  }, [feedType, leagueId]);
+  }, [feedType, leagueId, searchQuery]);
 
-  // --- 2. CACHE LOGIC (Kept from your old Home) ---
   const loadCachedPosts = async () => {
     try {
       const cachedData = await AsyncStorage.getItem(CACHE_KEY);
       if (cachedData) {
         setPosts(JSON.parse(cachedData));
-        setLoading(false);
       }
     } catch (e) {
       console.log('Cache Error:', e);
     }
   };
 
-  // --- 3. API LOGIC (Merged with your Onboarding/League logic) ---
   const fetchPosts = async (showRefreshing = false) => {
+    if (searchQuery === '') return;
+
     if (showRefreshing) setIsRefreshing(true);
     else if (posts.length === 0) setLoading(true);
 
     try {
       let url = `api/posts/?feed_type=${feedType}`;
-      const preferences = user?.fan_preferences || [];
 
-      // If user clicked a specific League in Drawer
+      if (searchQuery) {
+        url += `&search=${encodeURIComponent(searchQuery)}`;
+      }
+
+      const preferences = user?.fan_preferences || [];
       if (leagueId) {
         url += `&league=${leagueId}`;
-      }
-      // If on 'Following' tab and has preferences, apply your "Hard Filter"
-      else if (feedType === 'following' && preferences.length > 0) {
+      } else if (preferences.length > 0) {
         const followedIds = preferences.map(p => p.league).join(',');
         url += `&leagues=${followedIds}`;
       }
@@ -71,7 +79,7 @@ export default function FeedList({ feedType, leagueId }) {
       setPosts(incoming);
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(incoming));
     } catch (err) {
-      console.log('Fetch Error:', err);
+      console.error('Fetch Error:', err);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -89,7 +97,7 @@ export default function FeedList({ feedType, leagueId }) {
   return (
     <Tabs.FlatList
       data={posts}
-      keyExtractor={item => item.id.toString()}
+      keyExtractor={item => item?.id?.toString() || Math.random().toString()}
       renderItem={({ item }) => (
         <PostCard
           post={item}
@@ -106,11 +114,17 @@ export default function FeedList({ feedType, leagueId }) {
           refreshing={isRefreshing}
           onRefresh={() => fetchPosts(true)}
           tintColor="#1E90FF"
+          // 🚀 Offset the spinner so it's visible below the tab bar
+          progressViewOffset={20}
         />
       }
       ListEmptyComponent={
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>No posts found in this feed.</Text>
+          <Text style={styles.emptyText}>
+            {searchQuery === ''
+              ? 'Type something to search for posts...'
+              : 'No posts found matching your search.'}
+          </Text>
         </View>
       }
       contentContainerStyle={styles.listContent}
@@ -125,11 +139,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 40,
     backgroundColor: '#0D1F2D',
+    minHeight: 400, // 🚀 Prevents collapsing when empty
   },
   listContent: {
     backgroundColor: '#0D1F2D',
     minHeight: '100%',
-    paddingBottom: 100,
+    paddingTop: 15, // 🚀 FIX: Space between Tab Bar and first Post
+    paddingBottom: 120, // 🚀 FIX: Extra space for bottom navigation
   },
   emptyText: { color: '#94A3B8', textAlign: 'center', fontSize: 16 },
 });

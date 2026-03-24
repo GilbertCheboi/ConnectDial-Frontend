@@ -8,11 +8,13 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Linking, // 🚀 Added for opening URLs
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import Video from 'react-native-video';
+import Autolink from 'react-native-autolink'; // 🚀 Added for Mentions/Hashtags/Links
 import { AuthContext } from '../store/authStore';
-import { useFollow } from '../store/FollowContext'; // 🚀 IMPORT THIS
+import { useFollow } from '../store/FollowContext';
 import api from '../api/client';
 import { useNavigation } from '@react-navigation/native';
 
@@ -31,19 +33,15 @@ const formatTimeAgo = dateString => {
 
 const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   const { user } = useContext(AuthContext);
-  const { followingIds, updateFollowStatus } = useFollow(); // 🚀 Matches your Context values
+  const { followingIds, updateFollowStatus } = useFollow();
   const navigation = useNavigation();
 
   const originalData = post.original_post;
   const isSimpleRepost = !!originalData && !post.content;
-
   const author = post.author_details;
   const support = post.supporting_info;
   const isOwner = user?.id === author?.id;
 
-  // 🚀 SYNC LOGIC
-  // If the ID is in our global Set, it's followed.
-  // If not in the set, we default to whatever the backend originally sent (post.author_details.is_following).
   const isFollowing =
     followingIds.has(author?.id) ||
     (author?.is_following && !followingIds.has(-author?.id));
@@ -62,22 +60,14 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
 
   const handleFollowToggle = async () => {
     if (followLoading) return;
-
     const previousState = isFollowing;
     const authorId = author?.id;
-
     setFollowLoading(true);
-
-    // 🚀 OPTIMISTIC UPDATE
-    // This flips the button on EVERY card for this author instantly
     updateFollowStatus(authorId, !previousState);
-
     try {
       const response = await api.post(`auth/users/${authorId}/toggle-follow/`);
-      // Update global store with the final truth from server
       updateFollowStatus(authorId, response.data.following);
     } catch (err) {
-      // Rollback global state if the request fails
       updateFollowStatus(authorId, previousState);
       Alert.alert('Error', 'Could not update follow status.');
     } finally {
@@ -242,13 +232,30 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
 
       <View style={styles.contentBody}>
         {post.content ? (
-          <TouchableOpacity
-            onPress={() =>
+          <Autolink
+            text={post.content}
+            style={styles.postText}
+            linkStyle={styles.linkText}
+            mention="twitter"
+            hashtag="instagram"
+            url={true}
+            onPress={(url, match) => {
+              // 🚀 Custom Navigation Logic
+              if (match.getType() === 'mention') {
+                const cleanUsername = match.getAnchorText().replace('@', '');
+                navigation.navigate('Profile', { username: cleanUsername });
+              } else if (match.getType() === 'hashtag') {
+                const cleanTag = match.getAnchorText().replace('#', '');
+                navigation.navigate('Search', { query: cleanTag });
+              } else {
+                Linking.openURL(url);
+              }
+            }}
+            // If user taps the text but NOT a link, go to detail
+            onLongPress={() =>
               navigation.navigate('PostDetail', { postId: post.id })
             }
-          >
-            <Text style={styles.postText}>{post.content}</Text>
-          </TouchableOpacity>
+          />
         ) : null}
 
         {originalData && (
@@ -437,6 +444,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 10,
   },
+  // 🚀 New Link Style
+  linkText: { color: '#1E90FF', fontWeight: 'bold' },
   quoteBox: {
     marginTop: 5,
     borderWidth: 1,

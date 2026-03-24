@@ -24,6 +24,8 @@ import api from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import { AuthContext } from '../store/authStore';
 
+import { MentionInput } from 'react-native-controlled-mentions';
+
 const LEAGUE_MAP = {
   1: { name: 'Premier League', logo: require('../screens/assets/epl.png') },
   2: { name: 'NBA', logo: require('../screens/assets/NBA.jpeg') },
@@ -63,6 +65,8 @@ export default function CreatePostScreen({ route, navigation }) {
   const [mediaList, setMediaList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [postType, setPostType] = useState(initialType);
+  const [suggestions, setSuggestions] = useState([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
 
   // --- LOGIC: AUTO-FILL LEAGUE FOR QUOTES ---
   useEffect(() => {
@@ -155,6 +159,27 @@ export default function CreatePostScreen({ route, navigation }) {
     if (result.didCancel) return;
     if (result.assets) setMediaList(result.assets);
   };
+
+  const fetchUserSuggestions = useCallback(async keyword => {
+    if (!keyword) {
+      setSuggestions([]);
+      return;
+    }
+    try {
+      setMentionLoading(true);
+      // Adjust endpoint to match your Django User ViewSet search logic
+      const response = await api.get(`auth/users/?search=${keyword}`);
+      const formattedUsers = response.data.map(u => ({
+        id: u.id.toString(),
+        display: u.username, // Match what extract_mentions expects (@username)
+      }));
+      setSuggestions(formattedUsers);
+    } catch (err) {
+      console.error('Mention search error:', err);
+    } finally {
+      setMentionLoading(false);
+    }
+  }, []);
 
   const handlePost = async () => {
     const { quoteMode, parentPost, editMode, postData, onEditSuccess } =
@@ -355,16 +380,53 @@ export default function CreatePostScreen({ route, navigation }) {
         )}
       </View>
 
-      <TextInput
-        style={styles.input}
-        placeholder={
-          quoteMode ? 'Add a comment to this quote...' : "What's on your mind?"
-        }
+      <MentionInput
+        value={content}
+        onChange={setContent}
+        placeholder={quoteMode ? 'Add a comment...' : "What's on your mind?"}
         placeholderTextColor="#94A3B8"
         multiline
-        value={content}
-        onChangeText={setContent}
-        autoFocus={quoteMode}
+        style={styles.input} // Uses your existing styles
+        partTypes={[
+          {
+            trigger: '@',
+            renderSuggestions: ({ keyword, onSuggestionPress }) => {
+              // Trigger the API fetch whenever the keyword changes
+              useEffect(() => {
+                fetchUserSuggestions(keyword);
+              }, [keyword]);
+
+              if (keyword == null || suggestions.length === 0) return null;
+
+              return (
+                <View style={styles.suggestionContainer}>
+                  {mentionLoading && (
+                    <ActivityIndicator size="small" color="#1E90FF" />
+                  )}
+                  <FlatList
+                    data={suggestions}
+                    keyExtractor={item => item.id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        onPress={() => onSuggestionPress(item)}
+                        style={styles.suggestionItem}
+                      >
+                        <Text style={styles.suggestionText}>
+                          @{item.display}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              );
+            },
+            textStyle: { color: '#1E90FF', fontWeight: 'bold' }, // Highlight color in editor
+          },
+          {
+            trigger: '#', // For hashtags, we just color them (backend handles the rest)
+            textStyle: { color: '#28a745', fontWeight: 'bold' },
+          },
+        ]}
       />
 
       {/* 🚀 QUOTE PREVIEW UI */}
@@ -547,4 +609,26 @@ const styles = StyleSheet.create({
   },
   disabledBtn: { backgroundColor: '#1e90ff55' },
   postButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+
+  suggestionContainer: {
+    backgroundColor: '#162A3B',
+    borderRadius: 10,
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: '#1E90FF',
+    marginTop: 5,
+    position: 'absolute', // Ensures it floats over other elements
+    top: 100, // Adjust based on your layout
+    width: '100%',
+    zIndex: 1000,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0D1F2D',
+  },
+  suggestionText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
 });

@@ -72,7 +72,6 @@ export default function ProfileScreen({ route, navigation }) {
     setRefreshing(true);
     loadData();
   };
-
   // 🚀 TOGGLE FOLLOW FUNCTION
   const handleFollowToggle = async () => {
     if (followLoading) return;

@@ -25,7 +25,6 @@ export default function NotificationScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // --- 1. BULK ACTION: MARK ALL AS READ ---
   const markAllAsRead = async () => {
     try {
       await api.post('api/notifications/mark-all-read/');
@@ -37,7 +36,6 @@ export default function NotificationScreen({ navigation }) {
     }
   };
 
-  // --- 2. DYNAMIC HEADER CONFIG ---
   useLayoutEffect(() => {
     navigation.setOptions({
       headerShown: true,
@@ -52,16 +50,14 @@ export default function NotificationScreen({ navigation }) {
     });
   }, [navigation, notifications]);
 
-  // --- 3. API DATA FETCHING ---
   const fetchNotifications = useCallback(
     async (showRefreshing = false) => {
       if (showRefreshing) setIsRefreshing(true);
-
       try {
         const response = await api.get('api/notifications/');
         const data = response.data.results || response.data;
         setNotifications(data);
-        fetchUnreadCount(); // Sync global badge count
+        fetchUnreadCount();
       } catch (error) {
         console.error('Fetch Error:', error);
       } finally {
@@ -76,9 +72,11 @@ export default function NotificationScreen({ navigation }) {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // --- 4. NAVIGATION & READ STATUS LOGIC ---
   const handlePress = async item => {
-    if (item.post) {
+    // 🚀 Navigation based on type
+    if (item.notification_type === 'follow') {
+      navigation.navigate('Profile', { userId: item.sender });
+    } else if (item.post) {
       navigation.navigate('PostDetail', { postId: item.post });
     }
 
@@ -95,9 +93,8 @@ export default function NotificationScreen({ navigation }) {
     }
   };
 
-  // --- 5. RENDER NOTIFICATION ITEM ---
   const renderItem = ({ item }) => {
-    const profile = item.sender_profile; // 🚀 Data from your ProfileSerializer
+    const profile = item.sender_profile;
 
     const getIconConfig = () => {
       switch (item.notification_type) {
@@ -107,6 +104,8 @@ export default function NotificationScreen({ navigation }) {
           return { name: 'person-add', color: '#1E90FF' };
         case 'comment':
           return { name: 'chatbubble-ellipses', color: '#10B981' };
+        case 'mention':
+          return { name: 'at-circle', color: '#F59E0B' }; // Orange
         case 'repost':
           return { name: 'repeat', color: '#8B5CF6' };
         default:
@@ -124,7 +123,9 @@ export default function NotificationScreen({ navigation }) {
         <View style={styles.avatarWrapper}>
           <Image
             source={{
-              uri: profile?.profile_image || 'https://via.placeholder.com/150',
+              uri:
+                profile?.profile_image ||
+                `https://ui-avatars.com/api/?name=${profile?.username}`,
             }}
             style={styles.avatar}
           />
@@ -142,6 +143,7 @@ export default function NotificationScreen({ navigation }) {
             {item.notification_type === 'follow' && 'started following you.'}
             {item.notification_type === 'comment' && 'replied to your post.'}
             {item.notification_type === 'repost' && 'reposted your content.'}
+            {item.notification_type === 'mention' && 'mentioned you in a post.'}
           </Text>
           <Text style={styles.time}>{item.time_ago}</Text>
         </View>
