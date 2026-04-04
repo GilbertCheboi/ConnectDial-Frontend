@@ -103,9 +103,21 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
 
   const handleMenuPress = () => {
     const options = [{ text: 'Cancel', style: 'cancel' }];
+
     if (isOwner) {
       options.push(
-        { text: 'Edit Post', onPress: () => onEditPress?.(post) },
+        {
+          text: 'Edit Post',
+          onPress: () => {
+            // 🚀 Navigate directly to CreatePost with the necessary data
+            navigation.navigate('CreatePost', {
+              editMode: true,
+              postData: post, // This contains the content, media, etc.
+              leagueId: post.league,
+              leagueName: post.supporting_info?.league_name,
+            });
+          },
+        },
         {
           text: 'Delete Post',
           style: 'destructive',
@@ -231,33 +243,39 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
       </View>
 
       <View style={styles.contentBody}>
-        {post.content ? (
-          <Autolink
-            text={post.content}
-            style={styles.postText}
-            linkStyle={styles.linkText}
-            mention="twitter"
-            hashtag="instagram"
-            url={true}
-            onPress={(url, match) => {
-              // 🚀 Custom Navigation Logic
-              if (match.getType() === 'mention') {
-                const cleanUsername = match.getAnchorText().replace('@', '');
-                navigation.navigate('Profile', { username: cleanUsername });
-              } else if (match.getType() === 'hashtag') {
-                const cleanTag = match.getAnchorText().replace('#', '');
-                navigation.navigate('Search', { query: cleanTag });
-              } else {
-                Linking.openURL(url);
-              }
-            }}
-            // If user taps the text but NOT a link, go to detail
-            onLongPress={() =>
-              navigation.navigate('PostDetail', { postId: post.id })
-            }
-          />
-        ) : null}
-
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('PostDetail', { postId: post.id })}
+          style={styles.contentBody}
+        >
+          {post.content ? (
+            <View pointerEvents="box-none">
+              <Autolink
+                text={post.content}
+                style={styles.postText}
+                linkStyle={styles.linkText}
+                mention="twitter"
+                hashtag="instagram"
+                url={true}
+                // This ensures the Autolink doesn't swallow touches meant for the parent
+                onPress={(url, match) => {
+                  if (match.getType() === 'mention') {
+                    const cleanUsername = match
+                      .getAnchorText()
+                      .replace('@', '');
+                    navigation.navigate('Profile', { username: cleanUsername });
+                  } else if (match.getType() === 'hashtag') {
+                    // 🚀 Changed: Use the full tag including # for the search query
+                    const tag = match.getAnchorText();
+                    navigation.navigate('Search', { query: tag });
+                  } else {
+                    Linking.openURL(url);
+                  }
+                }}
+              />
+            </View>
+          ) : null}
+        </TouchableOpacity>
         {originalData && (
           <TouchableOpacity
             style={styles.quoteBox}

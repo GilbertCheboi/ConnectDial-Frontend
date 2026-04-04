@@ -24,14 +24,21 @@ export default function MainTabNavigator() {
         headerShown: false,
         tabBarActiveTintColor: '#1E90FF',
         tabBarInactiveTintColor: '#888',
-        tabBarStyle: {
-          backgroundColor: '#0D1F2D',
-          borderTopWidth: 0.5,
-          borderTopColor: '#162A3B',
-          height: Platform.OS === 'ios' ? 88 : 70, // Slightly taller for better UX
-          paddingBottom: Platform.OS === 'ios' ? 30 : 12,
-          paddingTop: 10,
-        },
+        // 🚀 DYNAMIC TAB BAR HIDING
+        tabBarStyle: (route => {
+          const routeName = route.name;
+          if (routeName === 'Shorts') {
+            return { display: 'none' }; // Completely removes Tab Bar for Shorts
+          }
+          return {
+            backgroundColor: '#0D1F2D',
+            borderTopWidth: 0.5,
+            borderTopColor: '#162A3B',
+            height: Platform.OS === 'ios' ? 88 : 70,
+            paddingBottom: Platform.OS === 'ios' ? 30 : 12,
+            paddingTop: 10,
+          };
+        })(route),
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
@@ -57,6 +64,8 @@ export default function MainTabNavigator() {
         component={ShortsScreen}
         options={{
           title: 'Watch',
+          // 🚀 Ensure the Header is hidden even if the Drawer tries to show it
+          headerShown: false,
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? 'play-circle' : 'play-circle-outline'}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   FlatList,
@@ -8,69 +8,197 @@ import {
   Text,
   TouchableOpacity,
   StatusBar,
-  RefreshControl,
+  Animated,
+  Platform,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import Video from 'react-native-video';
+import YoutubePlayer from 'react-native-youtube-iframe';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import api from '../api/client';
+import { useIsFocused } from '@react-navigation/native';
 
-const { height, width } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('screen');
 
-// --- SINGLE VIDEO COMPONENT ---
-const ShortItem = ({ item, isVisible, navigation }) => {
-  const [videoError, setVideoError] = useState(false);
+// 💡 Extracts YouTube ID from URL
+const getYouTubeId = url => {
+  const regex =
+    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  const match = url?.match(regex);
+  return match ? match[1] : null;
+};
 
-  const videoUrl = item.media_file.startsWith('http')
-    ? item.media_file
-    : `http://192.168.1.107:8000${item.media_file}`;
+const ShortItem = React.memo(({ item, isVisible, navigation }) => {
+  const [isBuffering, setIsBuffering] = useState(true);
+  const [liked, setLiked] = useState(item.liked_by_me || item.user_has_liked);
+  const [likesCount, setLikesCount] = useState(item.likes_count || 0);
+  const [userPaused, setUserPaused] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+  const youtubeId = getYouTubeId(item.content);
+
+  // --- HYBRID DATA MAPPING (FIXES USERNAME/TEAM/LEAGUE) ---
+  const username =
+    item.author?.username || item.author_details?.username || 'user';
+  const teamName = item.team?.name || item.team_details?.name || null;
+  const leagueName = item.league?.name || item.league_details?.name || 'SPORT';
+
+  // Animation Refs
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const feedbackOpacity = useRef(new Animated.Value(0)).current;
+  const feedbackScale = useRef(new Animated.Value(0)).current;
+  const lastTap = useRef(0);
+
+  useEffect(() => {
+    if (!isVisible) setUserPaused(false);
+  }, [isVisible]);
+
+  const toggleLike = async () => {
+    const prevState = liked;
+    setLiked(!prevState);
+    setLikesCount(prevState ? likesCount - 1 : likesCount + 1);
+    try {
+      await api.post(`api/posts/${item.id}/like/`);
+    } catch (err) {
+      setLiked(prevState);
+      setLikesCount(prevState ? likesCount : likesCount - 1);
+    }
+  };
+
+  const handleTap = () => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      // ❤️ DOUBLE TAP: LIKE
+      heartScale.setValue(0);
+      Animated.sequence([
+        Animated.spring(heartScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          bounciness: 12,
+        }),
+        Animated.timing(heartScale, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+          delay: 400,
+        }),
+      ]).start();
+      if (!liked) toggleLike();
+    } else {
+      // ⏯️ SINGLE TAP: PLAY/PAUSE
+      setUserPaused(!userPaused);
+      feedbackOpacity.setValue(1);
+      feedbackScale.setValue(0.5);
+      Animated.parallel([
+        Animated.spring(feedbackScale, {
+          toValue: 1.2,
+          useNativeDriver: true,
+          friction: 4,
+        }),
+        Animated.timing(feedbackOpacity, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+          delay: 200,
+        }),
+      ]).start();
+    }
+    lastTap.current = now;
+  };
 
   return (
     <View style={styles.videoContainer}>
-      <Video
-        source={{ uri: videoUrl }}
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={handleTap}
         style={StyleSheet.absoluteFill}
-        resizeMode="cover"
-        paused={!isVisible} // Only plays when visible
-        repeat={true}
-        playInBackground={false}
-        playWhenInactive={false}
-        ignoreSilentSwitch="ignore"
-        // 🚀 Android specific optimizations
-        bufferConfig={{
-          minBufferMs: 15000,
-          maxBufferMs: 50000,
-          bufferForPlaybackMs: 2500,
-          bufferForPlaybackAfterRebufferMs: 5000,
-        }}
-        onLoad={() => console.log(`[Video] Playing ID: ${item.id}`)}
-        onError={e => {
-          console.error(`[Video] Error ID ${item.id}:`, e);
-          setVideoError(true);
-        }}
-      />
+      >
+        {youtubeId ? (
+          /* 📺 YouTube Player Layer */
+          <View style={styles.youtubeWrapper}>
+            <YoutubePlayer
+              height={SCREEN_HEIGHT}
+              width={SCREEN_WIDTH}
+              play={isVisible && !userPaused}
+              videoId={youtubeId}
+              mute={isMuted}
+              onReady={() => setIsBuffering(false)}
+              initialPlayerParams={{
+                loop: true,
+                controls: 0,
+                modestbranding: 1,
+                rel: 0,
+              }}
+            />
+            {/* Transparent layer to catch the tap events over the iframe */}
+            <View style={StyleSheet.absoluteFill} />
+          </View>
+        ) : (
+          /* 📹 Native Video Layer */
+          <Video
+            source={{ uri: item.media_file }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            paused={!isVisible || userPaused}
+            repeat={true}
+            muted={isMuted}
+            onLoad={() => setIsBuffering(false)}
+            onBuffer={({ isBuffering }) => setIsBuffering(isBuffering)}
+          />
+        )}
+      </TouchableOpacity>
 
-      {/* Error State Overlay */}
-      {videoError && (
-        <View style={styles.errorOverlay}>
-          <Ionicons name="alert-circle" size={50} color="#FF4B4B" />
-          <Text style={{ color: '#fff', marginTop: 10 }}>
-            Video Unavailable
-          </Text>
-        </View>
+      {/* 🚀 ANIMATION OVERLAY (Z-INDEX 100) */}
+      <View style={styles.overlayContainer} pointerEvents="none">
+        <Animated.View
+          style={[
+            styles.iconWrapper,
+            { opacity: feedbackOpacity, transform: [{ scale: feedbackScale }] },
+          ]}
+        >
+          <View style={styles.iconCircle}>
+            <Ionicons
+              name={userPaused ? 'play' : 'pause'}
+              size={40}
+              color="white"
+            />
+          </View>
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.iconWrapper,
+            { transform: [{ scale: heartScale }], position: 'absolute' },
+          ]}
+        >
+          <Ionicons name="heart" size={110} color="#FF4B4B" />
+        </Animated.View>
+      </View>
+
+      {/* 🔊 TOP CONTROLS */}
+      <TouchableOpacity
+        style={styles.muteBtn}
+        onPress={() => setIsMuted(!isMuted)}
+      >
+        <Ionicons
+          name={isMuted ? 'volume-mute' : 'volume-high'}
+          size={22}
+          color="#fff"
+        />
+      </TouchableOpacity>
+
+      <View style={styles.leagueBadge}>
+        <Text style={styles.leagueBadgeText}>{leagueName}</Text>
+      </View>
+
+      {isBuffering && (
+        <ActivityIndicator style={styles.loader} size="large" color="#1E90FF" />
       )}
 
-      {/* UI Overlays: Side Actions */}
+      {/* ❤️ SIDE ACTIONS */}
       <View style={styles.sideActions}>
-        <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons
-            name="heart"
-            size={38}
-            color={item.user_has_liked ? '#FF4B4B' : '#fff'}
-          />
-          <Text style={styles.actionText}>{item.likes_count || 0}</Text>
+        <TouchableOpacity style={styles.actionBtn} onPress={toggleLike}>
+          <Ionicons name="heart" size={40} color={liked ? '#FF4B4B' : '#fff'} />
+          <Text style={styles.actionText}>{likesCount}</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() => navigation.navigate('Comments', { postId: item.id })}
@@ -78,124 +206,95 @@ const ShortItem = ({ item, isVisible, navigation }) => {
           <Ionicons name="chatbubble-ellipses" size={35} color="#fff" />
           <Text style={styles.actionText}>{item.comments_count || 0}</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.actionBtn}>
           <Ionicons name="share-social" size={32} color="#fff" />
         </TouchableOpacity>
       </View>
 
-      {/* UI Overlays: Info Section */}
+      {/* 👤 BOTTOM INFO */}
       <View style={styles.bottomInfo}>
-        <Text style={styles.username}>
-          @{item.author_details?.username || 'user'}
-        </Text>
+        <View style={styles.userRow}>
+          <Text style={styles.username}>@{username}</Text>
+          {teamName && (
+            <View style={styles.teamTag}>
+              <Text style={styles.teamTagText}>{teamName}</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.caption} numberOfLines={2}>
           {item.content}
         </Text>
-
-        {item.supporting_info?.league_name && (
-          <View style={styles.leagueTag}>
-            <Text style={styles.leagueTabText}>
-              {item.supporting_info.league_name}
-            </Text>
-          </View>
-        )}
       </View>
     </View>
   );
-};
+});
 
-// --- MAIN FEED SCREEN ---
 export default function ShortsScreen({ navigation }) {
   const [shorts, setShorts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [viewableIndex, setViewableIndex] = useState(0);
+  const isFocused = useIsFocused();
 
-  const fetchShorts = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
+  const fetchShorts = async () => {
     try {
       const response = await api.get('api/posts/shorts/');
-      setShorts(response.data);
+      setShorts(response.data.results || response.data);
     } catch (err) {
-      console.log('[API Error]:', err.message);
+      console.error('Shorts Fetch Error:', err);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchShorts();
-    }, []),
-  );
+  useEffect(() => {
+    fetchShorts();
+  }, []);
+
+  useEffect(() => {
+    if (isFocused) {
+      StatusBar.setHidden(true, 'fade');
+    } else {
+      StatusBar.setHidden(false, 'fade');
+    }
+  }, [isFocused]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
-    if (viewableItems?.length > 0) {
-      setViewableIndex(viewableItems[0].index);
-    }
+    if (viewableItems?.length > 0) setViewableIndex(viewableItems[0].index);
   }).current;
 
-  // 🚀 Logic to ensure FlatList renders at the correct size
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 50,
-  }).current;
-
-  if (loading && !refreshing) {
+  if (loading)
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1E90FF" />
       </View>
     );
-  }
 
   return (
     <View style={styles.mainContainer}>
-      <StatusBar
-        barStyle="light-content"
-        translucent
-        backgroundColor="transparent"
-      />
-
       <FlatList
         data={shorts}
         keyExtractor={item => item.id.toString()}
         renderItem={({ item, index }) => (
           <ShortItem
             item={item}
-            isVisible={index === viewableIndex}
+            isVisible={isFocused && index === viewableIndex}
             navigation={navigation}
           />
         )}
         pagingEnabled
-        vertical
-        showsVerticalScrollIndicator={false}
         onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        // 🚀 Optimization for full-screen scrolling
-        snapToInterval={height}
+        viewabilityConfig={{ itemVisiblePercentThreshold: 80 }}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={SCREEN_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
-        getItemLayout={(data, index) => ({
-          length: height,
-          offset: height * index,
-          index,
-        })}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => fetchShorts(true)}
-            tintColor="#fff"
-          />
-        }
+        disableIntervalMomentum={true}
       />
-
       <TouchableOpacity
         style={styles.backBtn}
         onPress={() => navigation.goBack()}
       >
-        <Ionicons name="arrow-back" size={28} color="#fff" />
+        <Ionicons name="chevron-back" size={30} color="#fff" />
       </TouchableOpacity>
     </View>
   );
@@ -209,43 +308,112 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000',
   },
-  videoContainer: { height: height, width: width, backgroundColor: '#000' },
-  errorOverlay: {
+  videoContainer: { height: SCREEN_HEIGHT, width: SCREEN_WIDTH },
+
+  // 📺 Fix: Full Screen YouTube wrapper centering the content
+  youtubeWrapper: {
+    height: SCREEN_HEIGHT,
+    width: SCREEN_WIDTH,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  overlayContainer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#111',
+    zIndex: 100,
   },
-  backBtn: { position: 'absolute', top: 50, left: 20, zIndex: 10 },
+  iconWrapper: { justifyContent: 'center', alignItems: 'center' },
+  iconCircle: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  loader: { position: 'absolute', top: '48%', left: '45%', zIndex: 110 },
+  backBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 60 : 30,
+    left: 15,
+    zIndex: 110,
+  },
+  muteBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 65 : 35,
+    left: 60,
+    zIndex: 110,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    padding: 6,
+    borderRadius: 20,
+  },
+
+  leagueBadge: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 65 : 35,
+    right: 15,
+    backgroundColor: '#1E90FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    zIndex: 110,
+  },
+  leagueBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
   sideActions: {
     position: 'absolute',
-    right: 15,
-    bottom: 120,
+    right: 12,
+    bottom: 160,
     alignItems: 'center',
-    zIndex: 5,
+    zIndex: 110,
   },
-  actionBtn: { alignItems: 'center', marginBottom: 20 },
-  actionText: { color: '#fff', fontSize: 13, fontWeight: 'bold', marginTop: 5 },
+  actionBtn: { alignItems: 'center', marginBottom: 25 },
+  actionText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginTop: 4,
+    textShadowColor: 'black',
+    textShadowRadius: 2,
+  },
+
   bottomInfo: {
     position: 'absolute',
-    bottom: 50,
-    left: 20,
+    bottom: 100,
+    left: 15,
     right: 100,
-    zIndex: 5,
+    zIndex: 110,
   },
+  userRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   username: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 17,
-    marginBottom: 8,
+    textShadowColor: 'black',
+    textShadowRadius: 3,
   },
-  caption: { color: '#fff', fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  leagueTag: {
-    backgroundColor: 'rgba(30, 144, 255, 0.3)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    alignSelf: 'flex-start',
+  teamTag: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 5,
+    marginLeft: 12,
   },
-  leagueTabText: { color: '#1E90FF', fontSize: 12, fontWeight: 'bold' },
+  teamTagText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  caption: {
+    color: '#eee',
+    fontSize: 15,
+    lineHeight: 21,
+    textShadowColor: 'black',
+    textShadowRadius: 2,
+  },
 });

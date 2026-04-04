@@ -241,15 +241,12 @@ export default function MainDrawerNavigator() {
   return (
     <Drawer.Navigator
       drawerContent={props => <CustomDrawerContent {...props} />}
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: '#0D1F2D',
-          borderBottomWidth: 1,
-          borderBottomColor: '#1E293B',
-        },
-        headerTintColor: '#fff',
+      screenOptions={({ route }) => ({
+        // 🚀 HIDE DRAWER HEADER FOR THE MAIN TAB AREA
+        // This prevents the "ConnectDial" top bar from pushing your video down
+        headerShown: false,
         drawerStyle: { backgroundColor: '#0D1F2D', width: width * 0.8 },
-      }}
+      })}
     >
       <Drawer.Screen name="ConnectDial" component={MainTabNavigator} />
       <Drawer.Screen name="Profile" component={ProfileScreen} />

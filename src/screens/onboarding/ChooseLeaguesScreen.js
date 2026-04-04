@@ -8,33 +8,42 @@ import {
   Image,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import axios from 'axios';
 
-const leagues = [
-  { id: 1, name: 'Premier League', logo: require('../assets/epl.png') },
-  { id: 2, name: 'NBA', logo: require('../assets/NBA.jpeg') },
-  { id: 3, name: 'NFL', logo: require('../assets/NFL.png') },
-  { id: 4, name: 'F1', logo: require('../assets/F1.png') },
-  {
-    id: 5,
-    name: 'Champions League',
-    logo: require('../assets/Champions_League.png'),
-  },
-  { id: 6, name: 'MLB', logo: require('../assets/MLB.png') },
-  { id: 7, name: 'NHL', logo: require('../assets/NHL-logo.jpg') },
-  { id: 8, name: 'La Liga', logo: require('../assets/laliga.png') },
-  { id: 9, name: 'Serie A', logo: require('../assets/Serie_A.png') },
-  { id: 10, name: 'Bundesliga', logo: require('../assets/bundesliga.jpg') },
-  { id: 11, name: 'Ligue 1', logo: require('../assets/Ligue1_logo.png') },
-  { id: 12, name: 'Afcon', logo: require('../assets/Afcon.png') },
-];
+// 🚀 Replace with your HP 290 local IP or production domain
+const API_BASE_URL = 'http://192.168.100.107:8000/api';
 
 export default function ChooseLeaguesScreen({ navigation, route }) {
+  const [leagues, setLeagues] = useState([]);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // 🚀 MODE CHECK: Are we adding a new league or starting fresh?
   const isAddingNew = route.params?.mode === 'add';
+
+  // 🚀 Fetch leagues from Django on mount
+  useEffect(() => {
+    fetchLeagues();
+  }, []);
+
+const fetchLeagues = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_BASE_URL}/leagues/`);
+      
+      // 🚀 THE FIX: If there are results, use them. Otherwise, fallback to data.
+      const leagueData = response.data.results ? response.data.results : response.data;
+      
+      setLeagues(leagueData);
+    } catch (error) {
+      console.error("Error fetching leagues:", error);
+      Alert.alert("Connection Error", "Could not load leagues from the server.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggleLeague = id => {
     setSelectedLeagues(prev =>
@@ -50,7 +59,6 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
       );
     }
 
-    // 🚀 Pass the mode forward to SelectTeams
     navigation.navigate('SelectTeams', {
       selectedLeagues,
       mode: isAddingNew ? 'add' : 'onboarding',
@@ -66,7 +74,12 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
         style={[styles.card, isSelected && styles.cardSelected]}
       >
         <View style={styles.logoContainer}>
-          <Image source={item.logo} style={styles.logo} resizeMode="contain" />
+          {/* 🚀 Use { uri: item.logo } for Firebase Cloud URLs */}
+          <Image
+            source={{ uri: item.logo }}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           {isSelected && (
             <View style={styles.checkBadge}>
               <MaterialCommunityIcons
@@ -83,6 +96,15 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
       </TouchableOpacity>
     );
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#1E90FF" />
+        <Text style={{ color: '#fff', marginTop: 10 }}>Loading Leagues...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -119,6 +141,7 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D1F2D' },
+  centered: { justifyContent: 'center', alignItems: 'center' },
   header: { padding: 25, paddingTop: 40 },
   title: {
     fontSize: 26,
@@ -152,7 +175,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   logoContainer: { position: 'relative', marginBottom: 12 },
-  logo: { width: 70, height: 70 },
+  logo: { width: 70, height: 70, borderRadius: 10 },
   checkBadge: {
     position: 'absolute',
     top: -5,
@@ -167,7 +190,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   nameSelected: { color: '#fff', fontWeight: 'bold' },
-
   footer: {
     position: 'absolute',
     bottom: 0,

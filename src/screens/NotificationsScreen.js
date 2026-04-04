@@ -75,7 +75,7 @@ export default function NotificationScreen({ navigation }) {
   const handlePress = async item => {
     // 🚀 Navigation based on type
     if (item.notification_type === 'follow') {
-      navigation.navigate('Profile', { userId: item.sender });
+      navigation.navigate('Profile', { userId: item.sender_profile?.id });
     } else if (item.post) {
       navigation.navigate('PostDetail', { postId: item.post });
     }
