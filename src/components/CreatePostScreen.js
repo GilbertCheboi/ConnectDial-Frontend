@@ -67,6 +67,7 @@ export default function CreatePostScreen({ route, navigation }) {
   const [postType, setPostType] = useState(initialType);
   const [suggestions, setSuggestions] = useState([]);
   const [mentionLoading, setMentionLoading] = useState(false);
+  const [profile, setProfile] = useState(null);
 
   // --- LOGIC: AUTO-FILL LEAGUE FOR QUOTES ---
   useEffect(() => {
@@ -77,12 +78,32 @@ export default function CreatePostScreen({ route, navigation }) {
     }
   }, [quoteMode, parentPost]);
 
+  useEffect(() => {
+    const fetchLatestProfile = async () => {
+      try {
+        const response = await api.get('auth/update/');
+        const data = response.data.data || response.data;
+        setProfile(data);
+      } catch (err) {
+        console.error('Create Post Profile Fetch Error:', err);
+      }
+    };
+
+    if (isFocused) {
+      fetchLatestProfile();
+    }
+  }, [isFocused]);
+
   const userLeagues = useMemo(() => {
-    if (!user?.fan_preferences || !Array.isArray(user.fan_preferences))
+    const sourceData = profile || user;
+    if (
+      !sourceData?.fan_preferences ||
+      !Array.isArray(sourceData.fan_preferences)
+    )
       return [];
     const uniqueLeagues = [];
     const seenIds = new Set();
-    user.fan_preferences.forEach(pref => {
+    sourceData.fan_preferences.forEach(pref => {
       const id = pref.league;
       if (id && !seenIds.has(id)) {
         seenIds.add(id);
@@ -91,7 +112,7 @@ export default function CreatePostScreen({ route, navigation }) {
       }
     });
     return uniqueLeagues.sort((a, b) => a.id - b.id);
-  }, [user?.fan_preferences]);
+  }, [profile, user]);
 
   // 1. Enhanced Reset Logic
   const resetForm = useCallback(() => {
