@@ -3,27 +3,59 @@ import {
   View,
   Text,
   Image,
+  Switch,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  ScrollView,
+  FlatList,
 } from 'react-native';
 import {
   createDrawerNavigator,
   DrawerContentScrollView,
   DrawerItem,
 } from '@react-navigation/drawer';
+import { useFocusEffect } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // Internal Imports
 import api from '../api/client';
 import { AuthContext } from '../store/authStore';
+import { ThemeContext } from '../store/themeStore';
 import MainTabNavigator from './MainTabNavigator';
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
 const Drawer = createDrawerNavigator();
 const { width } = Dimensions.get('window');
+
+const fallbackTheme = {
+  colors: {
+    background: '#0A1624',
+    surface: '#0D1F2D',
+    card: '#112634',
+    text: '#F8FAFC',
+    subText: '#94A3B8',
+    border: '#1E293B',
+    primary: '#1E90FF',
+    secondary: '#64748B',
+    icon: '#1E90FF',
+    button: '#1E90FF',
+    buttonText: '#FFFFFF',
+    inputBackground: '#112634',
+    overlay: 'rgba(255, 255, 255, 0.05)',
+    drawerBackground: '#0D1F2D',
+    drawerText: '#F8FAFC',
+    drawerIcon: '#1E90FF',
+    tabBar: '#0D1F2D',
+    tabBarInactive: '#64748B',
+    header: '#0D1F2D',
+    headerTint: '#F8FAFC',
+    notificationBadge: '#FF4B4B',
+    sheetBackground: '#0D1F2D',
+  },
+};
 
 // 🚀 LEAGUE ASSETS MAPPING
 const LEAGUE_MAP = {
@@ -46,8 +78,15 @@ const LEAGUE_MAP = {
 
 function CustomDrawerContent(props) {
   const { logout, user: authUser } = useContext(AuthContext);
+  const themeContext = useContext(ThemeContext) || {};
+  const {
+    themeName = 'dark',
+    theme = fallbackTheme,
+    toggleTheme = () => {},
+  } = themeContext;
   const [profile, setProfile] = useState(null);
   const [fetching, setFetching] = useState(false);
+  const isDarkMode = themeName === 'dark';
 
   // 🚀 1. FETCH LATEST PROFILE DATA (Same logic as ProfileScreen)
   const fetchLatestProfile = async () => {
@@ -55,6 +94,9 @@ function CustomDrawerContent(props) {
       setFetching(true);
       const response = await api.get('auth/update/');
       const data = response.data.data || response.data;
+      console.log('🚀 Drawer profile data:', data);
+      console.log('🚀 Profile image URL:', data?.profile_image);
+      console.log('🚀 Banner image URL:', data?.banner_image);
       setProfile(data);
     } catch (err) {
       console.error('Drawer Profile Fetch Error:', err);
@@ -65,23 +107,40 @@ function CustomDrawerContent(props) {
 
   useEffect(() => {
     fetchLatestProfile();
-  }, [authUser]); // Re-run if auth state changes
+  }, [authUser]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchLatestProfile();
+    }, []),
+  ); // Re-run if auth state changes
 
   // 🚀 2. DYNAMIC LEAGUES CALCULATION
   const userLeagues = useMemo(() => {
     // Use profile data if fetched, otherwise fallback to authUser
     const sourceData = profile || authUser;
+    console.log('🚀 Drawer userLeagues sourceData:', sourceData);
+    console.log('🚀 Drawer fan_preferences:', sourceData?.fan_preferences);
+
     if (
       !sourceData?.fan_preferences ||
       !Array.isArray(sourceData.fan_preferences)
-    )
+    ) {
+      console.log('🚀 Drawer: No fan_preferences found');
       return [];
+    }
 
     const uniqueLeagues = [];
     const seenIds = new Set();
 
     sourceData.fan_preferences.forEach(pref => {
       const id = pref.league;
+      console.log(
+        '🚀 Drawer processing fan_preference:',
+        pref,
+        'league id:',
+        id,
+      );
       if (id && !seenIds.has(id)) {
         seenIds.add(id);
         const details = LEAGUE_MAP[id] || { name: `League ${id}`, logo: null };
@@ -89,6 +148,7 @@ function CustomDrawerContent(props) {
       }
     });
 
+    console.log('🚀 Drawer final userLeagues:', uniqueLeagues);
     return uniqueLeagues.sort((a, b) => a.id - b.id);
   }, [profile, authUser]);
 
@@ -96,7 +156,12 @@ function CustomDrawerContent(props) {
   const displayData = profile || authUser;
 
   return (
-    <View style={styles.drawerWrapper}>
+    <View
+      style={[
+        styles.drawerWrapper,
+        { backgroundColor: theme.colors.drawerBackground },
+      ]}
+    >
       <DrawerContentScrollView
         {...props}
         contentContainerStyle={{ paddingTop: 0 }}
@@ -162,63 +227,90 @@ function CustomDrawerContent(props) {
           <Text style={styles.sectionTitle}>Your Leagues</Text>
         )}
 
-        {userLeagues.map(league => (
-          <DrawerItem
-            key={league.id}
-            label={league.name}
-            labelStyle={styles.leagueLabel}
-            icon={() =>
-              league.logo ? (
-                <Image
-                  source={league.logo}
-                  style={styles.leagueLogo}
-                  resizeMode="contain"
-                />
-              ) : (
-                <MaterialCommunityIcons
-                  name="trophy-outline"
-                  color="#94A3B8"
-                  size={22}
-                />
-              )
-            }
-            onPress={() =>
-              props.navigation.navigate('ConnectDial', {
-                screen: 'Home',
-                params: { leagueId: league.id },
-              })
-            }
-          />
-        ))}
-
-        <DrawerItem
-          label="Manage Leagues"
-          labelStyle={[styles.leagueLabel, { color: '#1E90FF' }]}
-          icon={() => (
-            <MaterialCommunityIcons
-              name="plus-circle-outline"
-              color="#1E90FF"
-              size={22}
+        <FlatList
+          data={userLeagues}
+          keyExtractor={item => item.id.toString()}
+          renderItem={({ item: league }) => (
+            <DrawerItem
+              label={league.name}
+              labelStyle={[
+                styles.leagueLabel,
+                { color: theme.colors.drawerText },
+              ]}
+              icon={() =>
+                league.logo ? (
+                  <Image
+                    source={league.logo}
+                    style={styles.leagueLogo}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <MaterialCommunityIcons
+                    name="trophy-outline"
+                    color={theme.colors.drawerIcon}
+                    size={22}
+                  />
+                )
+              }
+              onPress={() =>
+                props.navigation.navigate('ConnectDial', {
+                  screen: 'Home',
+                  params: { leagueId: league.id },
+                })
+              }
             />
           )}
-          onPress={() =>
-            props.navigation.navigate('Onboarding', {
-              screen: 'SelectLeagues',
-              params: { mode: 'edit' },
-            })
-          }
+          ListFooterComponent={() => (
+            <DrawerItem
+              label="Manage Leagues"
+              labelStyle={[styles.leagueLabel, { color: theme.colors.primary }]}
+              icon={() => (
+                <MaterialCommunityIcons
+                  name="plus-circle-outline"
+                  color={theme.colors.primary}
+                  size={22}
+                />
+              )}
+              onPress={() =>
+                props.navigation.navigate('Onboarding', {
+                  screen: 'SelectLeagues',
+                  params: { mode: 'edit' },
+                })
+              }
+            />
+          )}
+          style={styles.leaguesScrollContainer}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
         />
       </DrawerContentScrollView>
 
       {/* --- 4. FOOTER --- */}
       <View style={styles.footerContainer}>
+        <View style={styles.themeToggleContainer}>
+          <Text
+            style={[
+              styles.themeToggleLabel,
+              { color: theme.colors.drawerText },
+            ]}
+          >
+            Dark mode
+          </Text>
+          <Switch
+            value={isDarkMode}
+            onValueChange={toggleTheme}
+            trackColor={{ false: '#767577', true: theme.colors.primary }}
+            thumbColor={isDarkMode ? '#f4f3f4' : '#f4f3f4'}
+          />
+        </View>
+
         <DrawerItem
           label="Settings"
-          labelStyle={styles.footerLabel}
+          labelStyle={[styles.footerLabel, { color: theme.colors.drawerText }]}
           icon={() => (
             <MaterialCommunityIcons
               name="cog-outline"
-              color="#CBD5E1"
+              color={theme.colors.drawerIcon}
               size={20}
             />
           )}
@@ -238,6 +330,9 @@ function CustomDrawerContent(props) {
 }
 
 export default function MainDrawerNavigator() {
+  const themeContext = useContext(ThemeContext) || {};
+  const theme = themeContext.theme || fallbackTheme;
+
   return (
     <Drawer.Navigator
       drawerContent={props => <CustomDrawerContent {...props} />}
@@ -245,7 +340,10 @@ export default function MainDrawerNavigator() {
         // 🚀 HIDE DRAWER HEADER FOR THE MAIN TAB AREA
         // This prevents the "ConnectDial" top bar from pushing your video down
         headerShown: false,
-        drawerStyle: { backgroundColor: '#0D1F2D', width: width * 0.8 },
+        drawerStyle: {
+          backgroundColor: theme.colors.drawerBackground,
+          width: width * 0.8,
+        },
       })}
     >
       <Drawer.Screen name="ConnectDial" component={MainTabNavigator} />
@@ -306,7 +404,10 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     letterSpacing: 1,
   },
-  leagueLabel: { color: '#CBD5E1', fontSize: 15, marginLeft: -10 },
+  leaguesScrollContainer: {
+    height: 300, // Fixed height for independent scrolling
+  },
+  leagueLabel: { fontSize: 15, marginLeft: -10 },
   leagueLogo: { width: 24, height: 24, borderRadius: 4 },
   footerContainer: {
     borderTopWidth: 1,
@@ -315,4 +416,20 @@ const styles = StyleSheet.create({
   },
   logoutLabel: { color: '#EF4444', fontWeight: 'bold', marginLeft: -10 },
   footerLabel: { color: '#CBD5E1', marginLeft: -10 },
+  themeToggleContainer: {
+    marginHorizontal: 20,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
+    marginBottom: 10,
+  },
+  themeToggleLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });

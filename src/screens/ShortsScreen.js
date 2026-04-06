@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import {
   View,
   FlatList,
@@ -10,12 +10,14 @@ import {
   StatusBar,
   Animated,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import Video from 'react-native-video';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import api from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
+import { ThemeContext } from '../store/themeStore';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('screen');
 
@@ -27,7 +29,7 @@ const getYouTubeId = url => {
   return match ? match[1] : null;
 };
 
-const ShortItem = React.memo(({ item, isVisible, navigation }) => {
+const ShortItem = React.memo(({ item, isVisible, navigation, theme }) => {
   const [isBuffering, setIsBuffering] = useState(true);
   const [liked, setLiked] = useState(item.liked_by_me || item.user_has_liked);
   const [likesCount, setLikesCount] = useState(item.likes_count || 0);
@@ -35,12 +37,18 @@ const ShortItem = React.memo(({ item, isVisible, navigation }) => {
   const [isMuted, setIsMuted] = useState(false);
 
   const youtubeId = getYouTubeId(item.content);
+  const support = item.supporting_info || {};
 
   // --- HYBRID DATA MAPPING (FIXES USERNAME/TEAM/LEAGUE) ---
   const username =
     item.author?.username || item.author_details?.username || 'user';
-  const teamName = item.team?.name || item.team_details?.name || null;
-  const leagueName = item.league?.name || item.league_details?.name || 'SPORT';
+  const teamName =
+    item.team?.name || item.team_details?.name || support.team_name || null;
+  const leagueName =
+    item.league?.name ||
+    item.league_details?.name ||
+    support.league_name ||
+    'SPORT';
 
   // Animation Refs
   const heartScale = useRef(new Animated.Value(0)).current;
@@ -107,45 +115,43 @@ const ShortItem = React.memo(({ item, isVisible, navigation }) => {
 
   return (
     <View style={styles.videoContainer}>
+      {youtubeId ? (
+        /* 📺 YouTube Player Layer */
+        <View style={styles.youtubeWrapper}>
+          <YoutubePlayer
+            height={SCREEN_HEIGHT}
+            width={SCREEN_WIDTH}
+            play={isVisible && !userPaused}
+            videoId={youtubeId}
+            mute={isMuted}
+            onReady={() => setIsBuffering(false)}
+            initialPlayerParams={{
+              loop: true,
+              controls: 0,
+              modestbranding: 1,
+              rel: 0,
+            }}
+          />
+        </View>
+      ) : (
+        /* 📹 Native Video Layer */
+        <Video
+          source={{ uri: item.media_file }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          paused={!isVisible || userPaused}
+          repeat={true}
+          muted={isMuted}
+          onLoad={() => setIsBuffering(false)}
+          onBuffer={({ isBuffering }) => setIsBuffering(isBuffering)}
+        />
+      )}
+
       <TouchableOpacity
         activeOpacity={1}
         onPress={handleTap}
-        style={StyleSheet.absoluteFill}
-      >
-        {youtubeId ? (
-          /* 📺 YouTube Player Layer */
-          <View style={styles.youtubeWrapper}>
-            <YoutubePlayer
-              height={SCREEN_HEIGHT}
-              width={SCREEN_WIDTH}
-              play={isVisible && !userPaused}
-              videoId={youtubeId}
-              mute={isMuted}
-              onReady={() => setIsBuffering(false)}
-              initialPlayerParams={{
-                loop: true,
-                controls: 0,
-                modestbranding: 1,
-                rel: 0,
-              }}
-            />
-            {/* Transparent layer to catch the tap events over the iframe */}
-            <View style={StyleSheet.absoluteFill} />
-          </View>
-        ) : (
-          /* 📹 Native Video Layer */
-          <Video
-            source={{ uri: item.media_file }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            paused={!isVisible || userPaused}
-            repeat={true}
-            muted={isMuted}
-            onLoad={() => setIsBuffering(false)}
-            onBuffer={({ isBuffering }) => setIsBuffering(isBuffering)}
-          />
-        )}
-      </TouchableOpacity>
+        style={styles.tapOverlay}
+      />
 
       {/* 🚀 ANIMATION OVERLAY (Z-INDEX 100) */}
       <View style={styles.overlayContainer} pointerEvents="none">
@@ -169,7 +175,11 @@ const ShortItem = React.memo(({ item, isVisible, navigation }) => {
             { transform: [{ scale: heartScale }], position: 'absolute' },
           ]}
         >
-          <Ionicons name="heart" size={110} color="#FF4B4B" />
+          <Ionicons
+            name="heart"
+            size={110}
+            color={theme.colors.notificationBadge}
+          />
         </Animated.View>
       </View>
 
@@ -190,38 +200,57 @@ const ShortItem = React.memo(({ item, isVisible, navigation }) => {
       </View>
 
       {isBuffering && (
-        <ActivityIndicator style={styles.loader} size="large" color="#1E90FF" />
+        <ActivityIndicator
+          style={styles.loader}
+          size="large"
+          color={theme.colors.primary}
+        />
       )}
 
       {/* ❤️ SIDE ACTIONS */}
       <View style={styles.sideActions}>
         <TouchableOpacity style={styles.actionBtn} onPress={toggleLike}>
-          <Ionicons name="heart" size={40} color={liked ? '#FF4B4B' : '#fff'} />
+          <Ionicons
+            name="heart"
+            size={40}
+            color={liked ? theme.colors.notificationBadge : theme.colors.text}
+          />
           <Text style={styles.actionText}>{likesCount}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() => navigation.navigate('Comments', { postId: item.id })}
         >
-          <Ionicons name="chatbubble-ellipses" size={35} color="#fff" />
+          <Ionicons
+            name="chatbubble-ellipses"
+            size={35}
+            color={theme.colors.text}
+          />
           <Text style={styles.actionText}>{item.comments_count || 0}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons name="share-social" size={32} color="#fff" />
+          <Ionicons name="share-social" size={32} color={theme.colors.text} />
         </TouchableOpacity>
       </View>
 
       {/* 👤 BOTTOM INFO */}
       <View style={styles.bottomInfo}>
         <View style={styles.userRow}>
-          <Text style={styles.username}>@{username}</Text>
+          <Text style={[styles.username, { color: theme.colors.text }]}>
+            @{username}
+          </Text>
           {teamName && (
             <View style={styles.teamTag}>
-              <Text style={styles.teamTagText}>{teamName}</Text>
+              <Text style={[styles.teamTagText, { color: theme.colors.text }]}>
+                {teamName}
+              </Text>
             </View>
           )}
         </View>
-        <Text style={styles.caption} numberOfLines={2}>
+        <Text
+          style={[styles.caption, { color: theme.colors.subText }]}
+          numberOfLines={2}
+        >
           {item.content}
         </Text>
       </View>
@@ -230,25 +259,82 @@ const ShortItem = React.memo(({ item, isVisible, navigation }) => {
 });
 
 export default function ShortsScreen({ navigation }) {
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#000000',
+        primary: '#1E90FF',
+        text: '#FFFFFF',
+        subText: '#EEEEEE',
+        notificationBadge: '#FF4B4B',
+      },
+    },
+  };
   const [shorts, setShorts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [viewableIndex, setViewableIndex] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const isFocused = useIsFocused();
 
-  const fetchShorts = async () => {
+  const PAGE_SIZE = 10;
+
+  const fetchShorts = async ({ isRefresh = false, pageOffset = 0 } = {}) => {
     try {
-      const response = await api.get('api/posts/shorts/');
-      setShorts(response.data.results || response.data);
+      if (isRefresh) {
+        setRefreshing(true);
+        setOffset(0);
+        setHasMore(true);
+      } else if (pageOffset > 0) {
+        setIsLoadingMore(true);
+      }
+
+      // 🚀 Add pagination parameters
+      const response = await api.get(
+        `api/posts/shorts/?limit=${PAGE_SIZE}&offset=${pageOffset}`,
+      );
+
+      const data = response.data;
+      const incoming = data.results || data;
+      const totalCount = data.count || 0;
+
+      if (pageOffset === 0) {
+        // 🚀 First page: replace all
+        setShorts(incoming);
+      } else {
+        // 🚀 Subsequent pages: append
+        setShorts(prev => [...prev, ...incoming]);
+      }
+
+      // 🚀 Check if there are more pages
+      const nextOffset = pageOffset + PAGE_SIZE;
+      setHasMore(nextOffset < totalCount);
+      setOffset(nextOffset);
     } catch (err) {
       console.error('Shorts Fetch Error:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      setIsLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    fetchShorts();
+    fetchShorts({ pageOffset: 0 });
   }, []);
+
+  const handleRefresh = () => {
+    fetchShorts({ isRefresh: true, pageOffset: 0 });
+  };
+
+  const handleEndReached = ({ distanceFromEnd }) => {
+    // 🚀 Trigger load more when within 500 points of end for shorts
+    if (distanceFromEnd < 500 && hasMore && !isLoadingMore && !loading) {
+      fetchShorts({ pageOffset: offset });
+    }
+  };
 
   useEffect(() => {
     if (isFocused) {
@@ -264,13 +350,23 @@ export default function ShortsScreen({ navigation }) {
 
   if (loading)
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1E90FF" />
+      <View
+        style={[
+          styles.loadingContainer,
+          { backgroundColor: theme.colors.background },
+        ]}
+      >
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
 
   return (
-    <View style={styles.mainContainer}>
+    <View
+      style={[
+        styles.mainContainer,
+        { backgroundColor: theme.colors.background },
+      ]}
+    >
       <FlatList
         data={shorts}
         keyExtractor={item => item.id.toString()}
@@ -279,8 +375,18 @@ export default function ShortsScreen({ navigation }) {
             item={item}
             isVisible={isFocused && index === viewableIndex}
             navigation={navigation}
+            theme={theme}
           />
         )}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={styles.loadMoreIndicator}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            </View>
+          ) : null
+        }
         pagingEnabled
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={{ itemVisiblePercentThreshold: 80 }}
@@ -289,24 +395,30 @@ export default function ShortsScreen({ navigation }) {
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+          />
+        }
       />
       <TouchableOpacity
         style={styles.backBtn}
         onPress={() => navigation.goBack()}
       >
-        <Ionicons name="chevron-back" size={30} color="#fff" />
+        <Ionicons name="chevron-back" size={30} color={theme.colors.text} />
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: '#000' },
+  mainContainer: { flex: 1 },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000',
   },
   videoContainer: { height: SCREEN_HEIGHT, width: SCREEN_WIDTH },
 
@@ -314,7 +426,6 @@ const styles = StyleSheet.create({
   youtubeWrapper: {
     height: SCREEN_HEIGHT,
     width: SCREEN_WIDTH,
-    backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -324,6 +435,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
+  },
+  tapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
   },
   iconWrapper: { justifyContent: 'center', alignItems: 'center' },
   iconCircle: {
@@ -378,7 +493,6 @@ const styles = StyleSheet.create({
   },
   actionBtn: { alignItems: 'center', marginBottom: 25 },
   actionText: {
-    color: '#fff',
     fontSize: 13,
     fontWeight: 'bold',
     marginTop: 4,
@@ -395,7 +509,6 @@ const styles = StyleSheet.create({
   },
   userRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   username: {
-    color: '#fff',
     fontWeight: 'bold',
     fontSize: 17,
     textShadowColor: 'black',
@@ -408,12 +521,16 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginLeft: 12,
   },
-  teamTagText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  teamTagText: { fontSize: 11, fontWeight: '700' },
   caption: {
-    color: '#eee',
     fontSize: 15,
     lineHeight: 21,
     textShadowColor: 'black',
     textShadowRadius: 2,
+  },
+  loadMoreIndicator: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
 });

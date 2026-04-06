@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
   View,
   Text,
@@ -18,12 +18,29 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import FeedList from '../components/FeedList';
 import UserList from '../components/UserList';
 import api from '../api/client';
+import { ThemeContext } from '../store/themeStore';
 
 const RECENT_SEARCHES_KEY = '@recent_searches';
 
 export default function SearchScreen() {
   const route = useRoute();
   const navigation = useNavigation();
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#0D1F2D',
+        text: '#FFFFFF',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        border: '#1E293B',
+        secondary: '#64748B',
+        card: '#112634',
+        notificationBadge: '#FF4B4B',
+        buttonText: '#FFFFFF',
+      },
+    },
+  };
 
   const [query, setQuery] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
@@ -102,31 +119,31 @@ export default function SearchScreen() {
     props => (
       <MaterialTabBar
         {...props}
-        style={styles.tabBar}
-        indicatorStyle={styles.indicator}
-        activeColor="#FFFFFF"
-        inactiveColor="#64748B"
+        style={styles(theme).tabBar}
+        indicatorStyle={styles(theme).indicator}
+        activeColor={theme.colors.text}
+        inactiveColor={theme.colors.subText}
       />
     ),
-    [],
+    [theme],
   );
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} />
+    <View style={styles(theme).container}>
+      <SafeAreaView style={styles(theme).safeArea} />
 
-      <View style={styles.header}>
-        <View style={styles.searchContainer}>
+      <View style={styles(theme).header}>
+        <View style={styles(theme).searchContainer}>
           <Ionicons
             name="search"
             size={20}
-            color="#888"
+            color={theme.colors.subText}
             style={styles.searchIcon}
           />
           <TextInput
             style={styles.searchInput}
             placeholder="Search teams, fans, or #tags..."
-            placeholderTextColor="#888"
+            placeholderTextColor={theme.colors.subText}
             value={query}
             onChangeText={setQuery}
             onSubmitEditing={() => handleSearch()}
@@ -140,7 +157,11 @@ export default function SearchScreen() {
                 setActiveSearch('');
               }}
             >
-              <Ionicons name="close-circle" size={20} color="#888" />
+              <Ionicons
+                name="close-circle"
+                size={20}
+                color={theme.colors.subText}
+              />
             </TouchableOpacity>
           )}
         </View>
@@ -148,17 +169,21 @@ export default function SearchScreen() {
 
       <View style={{ flex: 1 }}>
         {activeSearch === '' ? (
-          <ScrollView style={styles.historyContainer}>
+          <ScrollView style={styles(theme).historyContainer}>
             {/* 🔥 TRENDING SECTION */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Trending Now</Text>
-              <Ionicons name="trending-up" size={18} color="#1E90FF" />
+            <View style={styles(theme).sectionHeader}>
+              <Text style={styles(theme).sectionTitle}>Trending Now</Text>
+              <Ionicons
+                name="trending-up"
+                size={18}
+                color={theme.colors.primary}
+              />
             </View>
 
-            <View style={styles.trendingWrapper}>
+            <View style={styles(theme).trendingWrapper}>
               {isTrendingLoading ? (
                 <ActivityIndicator
-                  color="#1E90FF"
+                  color={theme.colors.primary}
                   style={{ marginVertical: 10 }}
                 />
               ) : (
@@ -167,11 +192,13 @@ export default function SearchScreen() {
                   {(trendingTags || []).map(tag => (
                     <TouchableOpacity
                       key={tag.id}
-                      style={styles.trendingTag}
+                      style={styles(theme).trendingTag}
                       onPress={() => handleSearch(`#${tag.name}`)}
                     >
-                      <Text style={styles.trendingTagText}>#{tag?.name}</Text>
-                      <Text style={styles.tagCount}>
+                      <Text style={styles(theme).trendingTagText}>
+                        #{tag?.name}
+                      </Text>
+                      <Text style={styles(theme).tagCount}>
                         {tag?.post_count || 0} posts
                       </Text>
                     </TouchableOpacity>
@@ -182,15 +209,15 @@ export default function SearchScreen() {
 
             {/* 🕒 RECENT SEARCHES */}
             {recentSearches.length > 0 && (
-              <View style={[styles.sectionHeader, { marginTop: 20 }]}>
-                <Text style={styles.sectionTitle}>Recent Searches</Text>
+              <View style={[styles(theme).sectionHeader, { marginTop: 20 }]}>
+                <Text style={styles(theme).sectionTitle}>Recent Searches</Text>
                 <TouchableOpacity
                   onPress={() => {
                     setRecentSearches([]);
                     AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
                   }}
                 >
-                  <Text style={styles.clearText}>Clear All</Text>
+                  <Text style={styles(theme).clearText}>Clear All</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -199,11 +226,15 @@ export default function SearchScreen() {
             {(recentSearches || []).map(item => (
               <TouchableOpacity
                 key={item}
-                style={styles.recentItem}
+                style={styles(theme).recentItem}
                 onPress={() => handleSearch(item)}
               >
-                <Ionicons name="time-outline" size={18} color="#64748B" />
-                <Text style={styles.recentItemText}>{item}</Text>
+                <Ionicons
+                  name="time-outline"
+                  size={18}
+                  color={theme.colors.subText}
+                />
+                <Text style={styles(theme).recentItemText}>{item}</Text>
                 <TouchableOpacity
                   onPress={() => {
                     const filtered = recentSearches.filter(i => i !== item);
@@ -214,16 +245,26 @@ export default function SearchScreen() {
                     );
                   }}
                 >
-                  <Ionicons name="close" size={18} color="#475569" />
+                  <Ionicons
+                    name="close"
+                    size={18}
+                    color={theme.colors.secondary}
+                  />
                 </TouchableOpacity>
               </TouchableOpacity>
             ))}
 
             {recentSearches.length === 0 && !isTrendingLoading && (
-              <View style={styles.placeholderContainer}>
-                <Ionicons name="football-outline" size={60} color="#162A3B" />
-                <Text style={styles.placeholderTitle}>Find Your Community</Text>
-                <Text style={styles.placeholderSubtitle}>
+              <View style={styles(theme).placeholderContainer}>
+                <Ionicons
+                  name="football-outline"
+                  size={60}
+                  color={theme.colors.card}
+                />
+                <Text style={styles(theme).placeholderTitle}>
+                  Find Your Community
+                </Text>
+                <Text style={styles(theme).placeholderSubtitle}>
                   Search for teams or #hashtags
                 </Text>
               </View>
@@ -248,71 +289,89 @@ export default function SearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D1F2D' },
-  safeArea: { backgroundColor: '#0D1F2D' },
-  header: { paddingHorizontal: 15, backgroundColor: '#0D1F2D', zIndex: 10 },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#162A3B',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    marginVertical: 10,
-    height: 46,
-  },
-  searchIcon: { marginRight: 10 },
-  searchInput: { flex: 1, color: '#fff', fontSize: 16 },
-  tabBar: {
-    backgroundColor: '#0D1F2D',
-    borderBottomWidth: 1,
-    borderBottomColor: '#162A3B',
-  },
-  indicator: { backgroundColor: '#1E90FF', height: 3 },
-  historyContainer: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
-  clearText: { color: '#1E90FF', fontSize: 13 },
-  trendingWrapper: { marginBottom: 10 },
-  trendingTag: {
-    backgroundColor: '#162A3B',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: '#1E90FF55',
-  },
-  trendingTagText: { color: '#1E90FF', fontWeight: 'bold', fontSize: 14 },
-  tagCount: { color: '#64748B', fontSize: 10, marginTop: 2 },
-  recentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#162A3B',
-  },
-  recentItemText: { flex: 1, color: '#CBD5E1', marginLeft: 15, fontSize: 15 },
-  placeholderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 80,
-  },
-  placeholderTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 15,
-  },
-  placeholderSubtitle: {
-    color: '#64748B',
-    fontSize: 14,
-    marginTop: 5,
-  },
-});
+const styles = theme =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    safeArea: { backgroundColor: theme.colors.background },
+    header: {
+      paddingHorizontal: 15,
+      backgroundColor: theme.colors.background,
+      zIndex: 10,
+    },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.card,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      marginVertical: 10,
+      height: 46,
+    },
+    searchIcon: { marginRight: 10 },
+    searchInput: { flex: 1, color: theme.colors.text, fontSize: 16 },
+    tabBar: {
+      backgroundColor: theme.colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    indicator: { backgroundColor: theme.colors.primary, height: 3 },
+    historyContainer: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    sectionTitle: {
+      color: theme.colors.text,
+      fontWeight: 'bold',
+      fontSize: 16,
+    },
+    clearText: { color: theme.colors.primary, fontSize: 13 },
+    trendingWrapper: { marginBottom: 10 },
+    trendingTag: {
+      backgroundColor: theme.colors.card,
+      paddingHorizontal: 15,
+      paddingVertical: 10,
+      borderRadius: 20,
+      marginRight: 10,
+      borderWidth: 1,
+      borderColor: theme.colors.primary + '55',
+    },
+    trendingTagText: {
+      color: theme.colors.primary,
+      fontWeight: 'bold',
+      fontSize: 14,
+    },
+    tagCount: { color: theme.colors.subText, fontSize: 10, marginTop: 2 },
+    recentItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    recentItemText: {
+      flex: 1,
+      color: theme.colors.text,
+      marginLeft: 15,
+      fontSize: 15,
+    },
+    placeholderContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 80,
+    },
+    placeholderTitle: {
+      color: theme.colors.text,
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginTop: 15,
+    },
+    placeholderSubtitle: {
+      color: theme.colors.subText,
+      fontSize: 14,
+      marginTop: 5,
+    },
+  });

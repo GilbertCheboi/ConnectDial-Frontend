@@ -16,18 +16,35 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import api from '../api/client';
 import PostCard from '../components/PostCard';
 import { AuthContext } from '../store/authStore';
+import { ThemeContext } from '../store/themeStore';
 
 const { width } = Dimensions.get('window');
 
 export default function ProfileScreen({ route, navigation }) {
   const { user: loggedInUser } = useContext(AuthContext);
-  const userId = route.params?.userId || loggedInUser?.id;
-  const isCurrentUser = userId === loggedInUser?.id;
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#0D1F2D',
+        text: '#FFFFFF',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        border: '#1E293B',
+        secondary: '#64748B',
+        card: '#112634',
+        inputBackground: '#112634',
+      },
+    },
+  };
+  const routeUserId = route.params?.userId;
+  const routeUsername = route.params?.username;
 
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isCurrentUser, setIsCurrentUser] = useState(false);
 
   // 🚀 Follow States
   const [isFollowing, setIsFollowing] = useState(false);
@@ -36,19 +53,24 @@ export default function ProfileScreen({ route, navigation }) {
 
   const loadData = async () => {
     try {
-      const profileUrl = userId
-        ? `auth/update/?user_id=${userId}`
+      const profileUrl = routeUserId
+        ? `auth/update/?user_id=${routeUserId}`
+        : routeUsername
+        ? `auth/update/?username=${routeUsername}`
         : `auth/update/`;
       const profileRes = await api.get(profileUrl);
       const profileData = profileRes.data.data || profileRes.data;
 
       setProfile(profileData);
-      // Initialize follow states from backend data
       setIsFollowing(profileData.is_following);
       setFollowersCount(profileData.followers_count || 0);
 
-      const postUrl = userId
-        ? `api/posts/?user=${userId}`
+      const requestedUserId =
+        profileData.user_id || routeUserId || loggedInUser?.id;
+      setIsCurrentUser(requestedUserId === loggedInUser?.id);
+
+      const postUrl = requestedUserId
+        ? `api/posts/?user=${requestedUserId}`
         : `api/posts/?filter=mine`;
       const postsRes = await api.get(postUrl);
       const actualPosts = Array.isArray(postsRes.data)
@@ -66,7 +88,7 @@ export default function ProfileScreen({ route, navigation }) {
   useEffect(() => {
     setLoading(true);
     loadData();
-  }, [userId]);
+  }, [routeUserId, routeUsername, loggedInUser?.id]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -75,6 +97,12 @@ export default function ProfileScreen({ route, navigation }) {
   // 🚀 TOGGLE FOLLOW FUNCTION
   const handleFollowToggle = async () => {
     if (followLoading) return;
+
+    const profileUserId = profile?.user_id || routeUserId;
+    if (!profileUserId) {
+      Alert.alert('Error', 'Unable to determine which user to follow.');
+      return;
+    }
 
     // Optimistic Update: Change UI immediately
     const previousState = isFollowing;
@@ -86,7 +114,9 @@ export default function ProfileScreen({ route, navigation }) {
 
     try {
       // Use the endpoint we created: /users/<id>/toggle-follow/
-      const response = await api.post(`auth/users/${userId}/toggle-follow/`);
+      const response = await api.post(
+        `auth/users/${profileUserId}/toggle-follow/`,
+      );
 
       // Sync with exact backend numbers
       setIsFollowing(response.data.following);
@@ -105,15 +135,31 @@ export default function ProfileScreen({ route, navigation }) {
     const preferences = profile?.fan_preferences || [];
     return (
       <View style={styles.supportContainer}>
-        <Text style={styles.sectionTitle}>MY LEAGUES & TEAMS</Text>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          MY LEAGUES & TEAMS
+        </Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipScroll}
         >
           {preferences.map((pref, index) => (
-            <View key={index} style={styles.sportChip}>
-              <View style={styles.leagueIconBadge}>
+            <View
+              key={index}
+              style={[
+                styles.sportChip,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.leagueIconBadge,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
                 <MaterialCommunityIcons
                   name="trophy"
                   size={12}
@@ -121,10 +167,17 @@ export default function ProfileScreen({ route, navigation }) {
                 />
               </View>
               <View style={styles.chipTextStack}>
-                <Text style={styles.leagueNameText}>
+                <Text
+                  style={[styles.leagueNameText, { color: theme.colors.text }]}
+                >
                   {pref.league_name || 'League'}
                 </Text>
-                <Text style={styles.teamNameSubText}>
+                <Text
+                  style={[
+                    styles.teamNameSubText,
+                    { color: theme.colors.subText },
+                  ]}
+                >
                   {pref.team_name || 'Team'}
                 </Text>
               </View>
@@ -141,8 +194,16 @@ export default function ProfileScreen({ route, navigation }) {
                 })
               }
             >
-              <MaterialCommunityIcons name="plus" size={20} color="#1E90FF" />
-              <Text style={styles.addLeagueText}>Add League</Text>
+              <MaterialCommunityIcons
+                name="plus"
+                size={20}
+                color={theme.colors.primary}
+              />
+              <Text
+                style={[styles.addLeagueText, { color: theme.colors.primary }]}
+              >
+                Add League
+              </Text>
             </TouchableOpacity>
           )}
         </ScrollView>
@@ -152,22 +213,27 @@ export default function ProfileScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#1E90FF" />
+      <View
+        style={[
+          styles.loaderContainer,
+          { backgroundColor: theme.colors.background },
+        ]}
+      >
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   return (
     <FlatList
-      style={{ backgroundColor: '#0D1F2D' }}
+      style={{ backgroundColor: theme.colors.background }}
       data={posts}
       keyExtractor={item => item.id.toString()}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor="#1E90FF"
+          tintColor={theme.colors.primary}
         />
       }
       ListHeaderComponent={
@@ -181,7 +247,12 @@ export default function ProfileScreen({ route, navigation }) {
               }}
               style={styles.banner}
             />
-            <View style={styles.profilePicWrapper}>
+            <View
+              style={[
+                styles.profilePicWrapper,
+                { backgroundColor: theme.colors.background },
+              ]}
+            >
               <Image
                 source={{
                   uri:
@@ -196,10 +267,10 @@ export default function ProfileScreen({ route, navigation }) {
           <View style={styles.bioContainer}>
             <View style={styles.nameRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.name}>
+                <Text style={[styles.name, { color: theme.colors.text }]}>
                   {profile?.display_name || profile?.username || 'Fan'}
                 </Text>
-                <Text style={styles.handle}>
+                <Text style={[styles.handle, { color: theme.colors.subText }]}>
                   @{profile?.username || 'anonymous'}
                 </Text>
               </View>
@@ -207,18 +278,32 @@ export default function ProfileScreen({ route, navigation }) {
               {/* 🚀 CONDITIONAL ACTION BUTTON (Edit vs Follow) */}
               {isCurrentUser ? (
                 <TouchableOpacity
-                  style={styles.editButton}
+                  style={[
+                    styles.editButton,
+                    { borderColor: theme.colors.primary },
+                  ]}
                   onPress={() =>
                     navigation.navigate('EditProfile', { mode: 'edit' })
                   }
                 >
-                  <Text style={styles.editButtonText}>Edit Profile</Text>
+                  <Text
+                    style={[
+                      styles.editButtonText,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    Edit Profile
+                  </Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   style={[
                     styles.followButton,
-                    isFollowing && styles.followingButton,
+                    { backgroundColor: theme.colors.primary },
+                    isFollowing && [
+                      styles.followingButton,
+                      { borderColor: theme.colors.border },
+                    ],
                   ]}
                   onPress={handleFollowToggle}
                   disabled={followLoading}
@@ -226,13 +311,21 @@ export default function ProfileScreen({ route, navigation }) {
                   {followLoading ? (
                     <ActivityIndicator
                       size="small"
-                      color={isFollowing ? '#1E90FF' : '#fff'}
+                      color={
+                        isFollowing
+                          ? theme.colors.primary
+                          : theme.colors.buttonText
+                      }
                     />
                   ) : (
                     <Text
                       style={[
                         styles.followButtonText,
-                        isFollowing && styles.followingButtonText,
+                        { color: theme.colors.buttonText },
+                        isFollowing && [
+                          styles.followingButtonText,
+                          { color: theme.colors.subText },
+                        ],
                       ]}
                     >
                       {isFollowing ? 'Following' : 'Follow'}
@@ -242,33 +335,63 @@ export default function ProfileScreen({ route, navigation }) {
               )}
             </View>
 
-            <Text style={styles.bio}>
+            <Text style={[styles.bio, { color: theme.colors.subText }]}>
               {profile?.bio || 'Passionate sports fan. 🏆'}
             </Text>
 
-            <View style={styles.statsRow}>
+            <View
+              style={[styles.statsRow, { borderTopColor: theme.colors.border }]}
+            >
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{posts.length}</Text>
-                <Text style={styles.statLabel}>Posts</Text>
+                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
+                  {posts.length}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: theme.colors.subText }]}
+                >
+                  Posts
+                </Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{followersCount}</Text>
-                <Text style={styles.statLabel}>Followers</Text>
+                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
+                  {followersCount}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: theme.colors.subText }]}
+                >
+                  Followers
+                </Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>
+                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {profile?.following_count || 0}
                 </Text>
-                <Text style={styles.statLabel}>Following</Text>
+                <Text
+                  style={[styles.statLabel, { color: theme.colors.subText }]}
+                >
+                  Following
+                </Text>
               </View>
             </View>
           </View>
 
           {renderSupportSection()}
 
-          <View style={styles.tabHeader}>
-            <Text style={styles.tabText}>POSTS</Text>
-            <View style={styles.activeIndicator} />
+          <View
+            style={[
+              styles.tabHeader,
+              { borderBottomColor: theme.colors.border },
+            ]}
+          >
+            <Text style={[styles.tabText, { color: theme.colors.primary }]}>
+              POSTS
+            </Text>
+            <View
+              style={[
+                styles.activeIndicator,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
           </View>
         </>
       }
@@ -278,9 +401,11 @@ export default function ProfileScreen({ route, navigation }) {
           <MaterialCommunityIcons
             name="post-outline"
             size={50}
-            color="#1E293B"
+            color={theme.colors.border}
           />
-          <Text style={styles.emptyText}>No posts yet.</Text>
+          <Text style={[styles.emptyText, { color: theme.colors.subText }]}>
+            No posts yet.
+          </Text>
         </View>
       }
     />
@@ -290,25 +415,22 @@ export default function ProfileScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   loaderContainer: {
     flex: 1,
-    backgroundColor: '#0D1F2D',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerContainer: { height: 170, position: 'relative' },
-  banner: { width: '100%', height: 130, backgroundColor: '#1A2A3D' },
+  banner: { width: '100%', height: 130 },
   profilePicWrapper: {
     position: 'absolute',
     bottom: 0,
     left: 20,
     padding: 4,
-    backgroundColor: '#0D1F2D',
     borderRadius: 44,
   },
   profilePic: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#1A2A3D',
   },
   bioContainer: { paddingHorizontal: 20, paddingTop: 12 },
   nameRow: {
@@ -316,20 +438,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  name: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
-  handle: { color: '#64748B', fontSize: 14, marginTop: 2 },
+  name: { fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
+  handle: { fontSize: 14, marginTop: 2 },
 
   // 🚀 BUTTON STYLES
   editButton: {
     borderWidth: 1,
-    borderColor: '#1E90FF',
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 20,
   },
-  editButtonText: { color: '#1E90FF', fontWeight: 'bold', fontSize: 13 },
+  editButtonText: { fontWeight: 'bold', fontSize: 13 },
   followButton: {
-    backgroundColor: '#1E90FF',
     paddingHorizontal: 25,
     paddingVertical: 8,
     borderRadius: 20,
@@ -339,25 +459,22 @@ const styles = StyleSheet.create({
   followingButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#64748B',
   },
-  followButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
-  followingButtonText: { color: '#64748B' },
+  followButtonText: { fontWeight: 'bold', fontSize: 14 },
+  followingButtonText: {},
 
-  bio: { color: '#CBD5E1', marginTop: 12, fontSize: 14, lineHeight: 20 },
+  bio: { marginTop: 12, fontSize: 14, lineHeight: 20 },
   statsRow: {
     flexDirection: 'row',
     marginTop: 20,
     borderTopWidth: 0.5,
-    borderTopColor: '#1E293B',
     paddingTop: 15,
   },
   statItem: { marginRight: 30, alignItems: 'flex-start' },
-  statNumber: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  statLabel: { color: '#64748B', fontSize: 12, marginTop: 2 },
+  statNumber: { fontSize: 16, fontWeight: 'bold' },
+  statLabel: { fontSize: 12, marginTop: 2 },
   supportContainer: { marginTop: 25, marginBottom: 10 },
   sectionTitle: {
-    color: '#1E90FF',
     fontSize: 11,
     fontWeight: '900',
     marginLeft: 20,
@@ -369,16 +486,13 @@ const styles = StyleSheet.create({
   sportChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#162636',
     paddingHorizontal: 16,
     borderRadius: 12,
     marginRight: 15,
     borderWidth: 1,
-    borderColor: '#1E293B',
     height: 55,
   },
   leagueIconBadge: {
-    backgroundColor: '#1E90FF',
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -387,9 +501,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   chipTextStack: { flexDirection: 'column' },
-  leagueNameText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+  leagueNameText: { fontSize: 14, fontWeight: 'bold' },
   teamNameSubText: {
-    color: '#94A3B8',
     fontSize: 12,
     fontWeight: '600',
     marginTop: 1,
@@ -401,12 +514,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 25,
     borderWidth: 1.5,
-    borderColor: '#1E293B',
     borderStyle: 'dashed',
     height: 55,
   },
   addLeagueText: {
-    color: '#1E90FF',
     fontSize: 14,
     fontWeight: 'bold',
     marginLeft: 8,
@@ -415,17 +526,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
     marginTop: 20,
     paddingHorizontal: 20,
     paddingBottom: 10,
   },
-  tabText: { color: '#1E90FF', fontSize: 14, fontWeight: 'bold' },
+  tabText: { fontSize: 14, fontWeight: 'bold' },
   activeIndicator: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#1E90FF',
     marginLeft: 8,
   },
   emptyContainer: {
@@ -433,5 +542,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyText: { color: '#64748B', fontSize: 16, marginTop: 12 },
+  emptyText: { fontSize: 16, marginTop: 12 },
 });

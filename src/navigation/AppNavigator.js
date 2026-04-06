@@ -3,12 +3,15 @@ import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import {
   NavigationContainer,
   useNavigationContainerRef,
+  DarkTheme,
+  DefaultTheme,
 } from '@react-navigation/native';
 import messaging from '@react-native-firebase/messaging';
 import axios from 'axios';
 
 // Contexts & Providers
 import { AuthContext } from '../store/authStore';
+import { ThemeContext } from '../store/themeStore';
 import { NotificationProvider } from '../store/NotificationContext';
 import { FollowProvider } from '../store/FollowContext';
 
@@ -19,6 +22,19 @@ import MainStackNavigator from './MainStackNavigator';
 
 export default function AppNavigator() {
   const { user, loading, isNew } = useContext(AuthContext);
+  const themeContext = useContext(ThemeContext) || {};
+  const themeName = themeContext.themeName || 'dark';
+  const theme = themeContext.theme || {
+    colors: {
+      primary: '#1E90FF',
+      background: '#0A1624',
+      card: '#0D1F2D',
+      text: '#F8FAFC',
+      border: '#1E293B',
+      notification: '#FF4B4B',
+    },
+  };
+  const themeLoading = themeContext.loading || false;
 
   // 🚀 Create a reference to the navigation container to navigate from useEffect
   const navigationRef = useNavigationContainerRef();
@@ -138,7 +154,7 @@ export default function AppNavigator() {
     };
   }, [user]);
 
-  if (loading) {
+  if (loading || themeLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1E90FF" />
@@ -146,11 +162,38 @@ export default function AppNavigator() {
     );
   }
 
+  const navigationTheme =
+    themeName === 'dark'
+      ? {
+          ...DarkTheme,
+          colors: {
+            ...DarkTheme.colors,
+            primary: theme.colors.primary,
+            background: theme.colors.background,
+            card: theme.colors.card,
+            text: theme.colors.text,
+            border: theme.colors.border,
+            notification: theme.colors.notificationBadge,
+          },
+        }
+      : {
+          ...DefaultTheme,
+          colors: {
+            ...DefaultTheme.colors,
+            primary: theme.colors.primary,
+            background: theme.colors.background,
+            card: theme.colors.card,
+            text: theme.colors.text,
+            border: theme.colors.border,
+            notification: theme.colors.notificationBadge,
+          },
+        };
+
   return (
     <NotificationProvider>
       <FollowProvider>
         {/* 🚀 Pass the navigationRef here */}
-        <NavigationContainer ref={navigationRef}>
+        <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           {user ? (
             isNew ? (
               <OnboardingNavigator />

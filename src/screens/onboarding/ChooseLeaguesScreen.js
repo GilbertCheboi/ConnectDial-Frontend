@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -12,34 +12,48 @@ import {
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import axios from 'axios';
+import api from '../../api/client';
+import { AuthContext } from '../../store/authStore';
 
 // 🚀 Replace with your HP 290 local IP or production domain
 const API_BASE_URL = 'http://192.168.100.107:8000/api';
 
 export default function ChooseLeaguesScreen({ navigation, route }) {
+  const { user } = useContext(AuthContext);
   const [leagues, setLeagues] = useState([]);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const accountType = route.params?.accountType || user?.account_type || 'fan';
+  const isEditMode = route.params?.mode === 'edit';
   const isAddingNew = route.params?.mode === 'add';
 
   // 🚀 Fetch leagues from Django on mount
   useEffect(() => {
     fetchLeagues();
-  }, []);
+    if (isEditMode && user?.fan_preferences) {
+      const currentLeagues = user.fan_preferences.map(pref => pref.league);
+      setSelectedLeagues(currentLeagues);
+    }
+  }, [isEditMode, user]);
 
-const fetchLeagues = async () => {
+  const fetchLeagues = async () => {
     try {
       setLoading(true);
       const response = await axios.get(`${API_BASE_URL}/leagues/`);
-      
+
       // 🚀 THE FIX: If there are results, use them. Otherwise, fallback to data.
-      const leagueData = response.data.results ? response.data.results : response.data;
-      
+      const leagueData = response.data.results
+        ? response.data.results
+        : response.data;
+
       setLeagues(leagueData);
     } catch (error) {
-      console.error("Error fetching leagues:", error);
-      Alert.alert("Connection Error", "Could not load leagues from the server.");
+      console.error('Error fetching leagues:', error);
+      Alert.alert(
+        'Connection Error',
+        'Could not load leagues from the server.',
+      );
     } finally {
       setLoading(false);
     }
@@ -59,10 +73,61 @@ const fetchLeagues = async () => {
       );
     }
 
-    navigation.navigate('SelectTeams', {
-      selectedLeagues,
-      mode: isAddingNew ? 'add' : 'onboarding',
-    });
+    if (accountType === 'fan') {
+      navigation.navigate('SelectTeams', {
+        selectedLeagues,
+        accountType,
+        mode: isEditMode ? 'edit' : 'onboarding',
+      });
+    } else {
+      // For news/organization, save leagues directly and skip to profile creation
+      saveLeaguesAndProceed();
+    }
+  };
+
+  // const isAddingNew = route.params?.mode === 'add';
+
+  const saveLeaguesAndProceed = async () => {
+    // For news/organization: Send fan_preferences with leagues but no teams
+    // This allows them to see their selected leagues in the drawer and create posts
+    const payload = {
+      account_type: accountType,
+      fan_preferences: selectedLeagues.map(leagueId => ({
+        league: leagueId,
+        // Omit team field entirely for news/organization accounts
+      })),
+      append_mode: isAddingNew,
+    };
+
+    console.log('🚀 Saving preferences for:', accountType);
+    console.log('📋 Payload being sent:', JSON.stringify(payload, null, 2));
+
+    try {
+      const response = await api.post('auth/onboarding/', payload);
+      console.log('✅ Preferences saved successfully:', response.data);
+
+      if (isEditMode) {
+        // For edit mode, go back to the previous screen
+        navigation.goBack();
+        Alert.alert('Success', 'Leagues updated successfully!');
+      } else {
+        // For onboarding, proceed to create profile
+        navigation.navigate('CreateProfile', {
+          accountType,
+          mode: 'onboarding',
+        });
+      }
+    } catch (error) {
+      console.error('❌ Save preferences error:');
+      console.error('Error response data:', error.response?.data);
+      console.error('Error message:', error.message);
+      console.error('Full error:', error);
+
+      Alert.alert(
+        'Error',
+        'Failed to save preferences. Check console for details.',
+      );
+    }
   };
 
   const renderLeague = ({ item }) => {
@@ -110,11 +175,11 @@ const fetchLeagues = async () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>
-          {isAddingNew ? 'Add New Leagues' : 'Welcome to ConnectDial'}
+          {isEditMode ? 'Edit Your Leagues' : 'Welcome to ConnectDial'}
         </Text>
         <Text style={styles.subtitle}>
-          {isAddingNew
-            ? 'Select additional leagues you want to follow'
+          {isEditMode
+            ? 'Update the leagues you want to follow'
             : 'Choose the leagues you want to follow to personalize your feed'}
         </Text>
       </View>
@@ -131,7 +196,13 @@ const fetchLeagues = async () => {
 
       <View style={styles.footer}>
         <TouchableOpacity style={styles.nextButton} onPress={proceed}>
-          <Text style={styles.nextButtonText}>Next: Select Teams</Text>
+          <Text style={styles.nextButtonText}>
+            {isEditMode
+              ? 'Next: Update Teams'
+              : accountType === 'fan'
+              ? 'Next: Select Teams'
+              : 'Continue to Profile'}
+          </Text>
           <MaterialCommunityIcons name="arrow-right" size={20} color="#fff" />
         </TouchableOpacity>
       </View>

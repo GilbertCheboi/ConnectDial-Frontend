@@ -77,12 +77,13 @@ export default function PostDetailScreen({ route }) {
   const handleSendComment = async () => {
     if (!newComment.trim() || isSubmitting) return;
     setIsSubmitting(true);
+    const trimmedComment = newComment.trim();
     try {
       if (editingComment) {
         const res = await api.patch(
           `api/posts/comments/${editingComment.id}/`,
           {
-            content: newComment,
+            content: trimmedComment,
           },
         );
         setComments(prev =>
@@ -91,7 +92,7 @@ export default function PostDetailScreen({ route }) {
         setEditingComment(null);
       } else {
         const res = await api.post(`api/posts/${postId}/comments/`, {
-          content: newComment,
+          content: trimmedComment,
         });
         setComments(prev => [res.data, ...prev]);
         setPost(prev => ({
@@ -101,7 +102,10 @@ export default function PostDetailScreen({ route }) {
       }
       setNewComment('');
     } catch (e) {
-      console.log(e);
+      console.log(
+        'Post detail comment error:',
+        JSON.stringify(e.response?.data || e.message, null, 2),
+      );
     } finally {
       setIsSubmitting(false);
     }

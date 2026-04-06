@@ -3,6 +3,7 @@ import React, {
   useState,
   useCallback,
   useLayoutEffect,
+  useContext,
 } from 'react';
 import {
   View,
@@ -18,8 +19,25 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import api from '../api/client';
 import { useNotifications } from '../store/NotificationContext';
+import { ThemeContext } from '../store/themeStore';
 
 export default function NotificationScreen({ navigation }) {
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#0D1F2D',
+        text: '#FFFFFF',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        border: '#1E293B',
+        secondary: '#64748B',
+        card: '#112634',
+        notificationBadge: '#FF4B4B',
+        buttonText: '#FFFFFF',
+      },
+    },
+  };
   const { setUnreadCount, fetchUnreadCount } = useNotifications();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,11 +58,18 @@ export default function NotificationScreen({ navigation }) {
     navigation.setOptions({
       headerShown: true,
       headerTitle: 'Notifications',
-      headerStyle: { backgroundColor: '#0D1F2D' },
-      headerTintColor: '#fff',
+      headerStyle: { backgroundColor: theme.colors.background },
+      headerTintColor: theme.colors.text,
       headerRight: () => (
-        <TouchableOpacity onPress={markAllAsRead} style={styles.headerButton}>
-          <Ionicons name="checkmark-done" size={24} color="#1E90FF" />
+        <TouchableOpacity
+          onPress={markAllAsRead}
+          style={styles(theme).headerButton}
+        >
+          <Ionicons
+            name="checkmark-done"
+            size={24}
+            color={theme.colors.primary}
+          />
         </TouchableOpacity>
       ),
     });
@@ -99,9 +124,9 @@ export default function NotificationScreen({ navigation }) {
     const getIconConfig = () => {
       switch (item.notification_type) {
         case 'like':
-          return { name: 'heart', color: '#FF4B4B' };
+          return { name: 'heart', color: theme.colors.notificationBadge };
         case 'follow':
-          return { name: 'person-add', color: '#1E90FF' };
+          return { name: 'person-add', color: theme.colors.primary };
         case 'comment':
           return { name: 'chatbubble-ellipses', color: '#10B981' };
         case 'mention':
@@ -109,7 +134,7 @@ export default function NotificationScreen({ navigation }) {
         case 'repost':
           return { name: 'repeat', color: '#8B5CF6' };
         default:
-          return { name: 'notifications', color: '#94A3B8' };
+          return { name: 'notifications', color: theme.colors.subText };
       }
     };
 
@@ -117,26 +142,30 @@ export default function NotificationScreen({ navigation }) {
 
     return (
       <TouchableOpacity
-        style={[styles.item, !item.is_read && styles.unreadBg]}
+        style={[styles(theme).item, !item.is_read && styles(theme).unreadBg]}
         onPress={() => handlePress(item)}
       >
-        <View style={styles.avatarWrapper}>
+        <View style={styles(theme).avatarWrapper}>
           <Image
             source={{
               uri:
                 profile?.profile_image ||
                 `https://ui-avatars.com/api/?name=${profile?.username}`,
             }}
-            style={styles.avatar}
+            style={styles(theme).avatar}
           />
-          <View style={[styles.badge, { backgroundColor: icon.color }]}>
-            <Ionicons name={icon.name} size={10} color="#fff" />
+          <View style={[styles(theme).badge, { backgroundColor: icon.color }]}>
+            <Ionicons
+              name={icon.name}
+              size={10}
+              color={theme.colors.buttonText}
+            />
           </View>
         </View>
 
-        <View style={styles.textWrapper}>
-          <Text style={styles.message} numberOfLines={2}>
-            <Text style={styles.username}>
+        <View style={styles(theme).textWrapper}>
+          <Text style={styles(theme).message} numberOfLines={2}>
+            <Text style={styles(theme).username}>
               {profile?.display_name || profile?.username || 'User'}{' '}
             </Text>
             {item.notification_type === 'like' && 'liked your post.'}
@@ -145,44 +174,44 @@ export default function NotificationScreen({ navigation }) {
             {item.notification_type === 'repost' && 'reposted your content.'}
             {item.notification_type === 'mention' && 'mentioned you in a post.'}
           </Text>
-          <Text style={styles.time}>{item.time_ago}</Text>
+          <Text style={styles(theme).time}>{item.time_ago}</Text>
         </View>
 
-        {!item.is_read && <View style={styles.dot} />}
+        {!item.is_read && <View style={styles(theme).dot} />}
       </TouchableOpacity>
     );
   };
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1E90FF" />
+      <View style={styles(theme).centered}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles(theme).container}>
       <FlatList
         data={notifications}
         keyExtractor={item => item.id.toString()}
         renderItem={renderItem}
-        contentContainerStyle={styles.listContainer}
+        contentContainerStyle={styles(theme).listContainer}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => fetchNotifications(true)}
-            tintColor="#1E90FF"
+            tintColor={theme.colors.primary}
           />
         }
         ListEmptyComponent={
-          <View style={styles.centered}>
+          <View style={styles(theme).centered}>
             <Ionicons
               name="notifications-off-outline"
               size={60}
-              color="#1E293B"
+              color={theme.colors.border}
             />
-            <Text style={styles.emptyText}>No activity to show.</Text>
+            <Text style={styles(theme).emptyText}>No activity to show.</Text>
           </View>
         }
       />
@@ -190,53 +219,54 @@ export default function NotificationScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#050B10' },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#050B10',
-  },
-  headerButton: { marginRight: 15, padding: 5 },
-  listContainer: { paddingBottom: 20 },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#162A3B',
-  },
-  unreadBg: { backgroundColor: 'rgba(30, 144, 255, 0.04)' },
-  avatarWrapper: { position: 'relative' },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#162A3B',
-  },
-  badge: {
-    position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#050B10',
-  },
-  textWrapper: { flex: 1, marginLeft: 16 },
-  username: { color: '#fff', fontWeight: '700' },
-  message: { color: '#CBD5E1', fontSize: 14, lineHeight: 20 },
-  time: { color: '#64748B', fontSize: 12, marginTop: 4 },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#1E90FF',
-    marginLeft: 10,
-  },
-  emptyText: { color: '#475569', fontSize: 16, marginTop: 12 },
-});
+const styles = theme =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    centered: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: theme.colors.background,
+    },
+    headerButton: { marginRight: 15, padding: 5 },
+    listContainer: { paddingBottom: 20 },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      borderBottomWidth: 0.5,
+      borderBottomColor: theme.colors.border,
+    },
+    unreadBg: { backgroundColor: theme.colors.card + '40' }, // Semi-transparent card color
+    avatarWrapper: { position: 'relative' },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: theme.colors.card,
+    },
+    badge: {
+      position: 'absolute',
+      bottom: -1,
+      right: -1,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: theme.colors.background,
+    },
+    textWrapper: { flex: 1, marginLeft: 16 },
+    username: { color: theme.colors.text, fontWeight: '700' },
+    message: { color: theme.colors.subText, fontSize: 14, lineHeight: 20 },
+    time: { color: theme.colors.secondary, fontSize: 12, marginTop: 4 },
+    dot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: theme.colors.primary,
+      marginLeft: 10,
+    },
+    emptyText: { color: theme.colors.secondary, fontSize: 16, marginTop: 12 },
+  });

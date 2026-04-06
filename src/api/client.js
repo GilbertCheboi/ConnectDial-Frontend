@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const api = axios.create({
   baseURL: 'http://192.168.100.107:8000/',
+  timeout: 30000, // 30 second timeout for large file uploads
 });
 
 api.interceptors.request.use(async config => {

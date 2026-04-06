@@ -17,6 +17,7 @@ import { AuthContext } from '../store/authStore';
 import { useFollow } from '../store/FollowContext';
 import api from '../api/client';
 import { useNavigation } from '@react-navigation/native';
+import { ThemeContext } from '../store/themeStore';
 
 const { width } = Dimensions.get('window');
 
@@ -35,6 +36,34 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   const { user } = useContext(AuthContext);
   const { followingIds, updateFollowStatus } = useFollow();
   const navigation = useNavigation();
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0A1624',
+        surface: '#0D1F2D',
+        card: '#112634',
+        text: '#F8FAFC',
+        subText: '#94A3B8',
+        border: '#1E293B',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+        icon: '#1E90FF',
+        button: '#1E90FF',
+        buttonText: '#FFFFFF',
+        inputBackground: '#112634',
+        overlay: 'rgba(255, 255, 255, 0.05)',
+        drawerBackground: '#0D1F2D',
+        drawerText: '#F8FAFC',
+        drawerIcon: '#1E90FF',
+        tabBar: '#0D1F2D',
+        tabBarInactive: '#64748B',
+        header: '#0D1F2D',
+        headerTint: '#F8FAFC',
+        notificationBadge: '#FF4B4B',
+        sheetBackground: '#0D1F2D',
+      },
+    },
+  };
 
   const originalData = post.original_post;
   const isSimpleRepost = !!originalData && !post.content;
@@ -47,6 +76,67 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
     (author?.is_following && !followingIds.has(-author?.id));
 
   const [liked, setLiked] = useState(post.liked_by_me || false);
+
+  const renderAuthorBadge = () => {
+    const badgeType = author?.badge_type;
+    const accountType = author?.account_type;
+
+    const badgeMap = {
+      official: {
+        label: 'Official Media',
+        icon: 'shield-check',
+        color: '#FACC15',
+      },
+      pioneer: {
+        label: 'Pioneer',
+        icon: 'rocket-launch',
+        color: '#A855F7',
+      },
+      superfan: {
+        label: 'Superfan',
+        icon: 'star-circle',
+        color: '#22C55E',
+      },
+      verified: {
+        label: 'Verified',
+        icon: 'check-circle',
+        color: '#38BDF8',
+      },
+    };
+
+    if (badgeType && badgeType !== 'none') {
+      const badge = badgeMap[badgeType];
+      return (
+        <View style={styles.badgeRow}>
+          <MaterialCommunityIcons
+            name={badge.icon}
+            size={14}
+            color={badge.color}
+          />
+          <Text style={[styles.badgeText, { color: badge.color }]}>
+            {' '}
+            {badge.label}
+          </Text>
+        </View>
+      );
+    }
+
+    if (accountType && accountType !== 'fan') {
+      const label = accountType === 'news' ? 'News / Media' : 'Organization';
+      return (
+        <View style={styles.badgeRow}>
+          <MaterialCommunityIcons
+            name="briefcase-outline"
+            size={14}
+            color="#94A3B8"
+          />
+          <Text style={[styles.badgeText, { color: '#94A3B8' }]}> {label}</Text>
+        </View>
+      );
+    }
+
+    return null;
+  };
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
   const [videoPaused, setVideoPaused] = useState(true);
   const [followLoading, setFollowLoading] = useState(false);
@@ -152,29 +242,52 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   };
 
   return (
-    <View style={styles.card}>
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+        },
+      ]}
+    >
       {isSimpleRepost && (
         <View style={styles.repostIndicator}>
-          <MaterialCommunityIcons name="repeat" size={16} color="#64748B" />
-          <Text style={styles.repostUserText}>
+          <MaterialCommunityIcons
+            name="repeat"
+            size={16}
+            color={theme.colors.secondary}
+          />
+          <Text
+            style={[styles.repostUserText, { color: theme.colors.secondary }]}
+          >
             {author?.display_name || author?.username} reposted
           </Text>
         </View>
       )}
 
       <View style={styles.topHeader}>
-        <View style={styles.leagueTag}>
+        <View
+          style={[
+            styles.leagueTag,
+            { backgroundColor: theme.colors.primary + '20' },
+          ]}
+        >
           <MaterialCommunityIcons
             name="trophy-variant"
             size={12}
-            color="#1E90FF"
+            color={theme.colors.primary}
           />
-          <Text style={styles.leagueHeaderText}>
+          <Text
+            style={[styles.leagueHeaderText, { color: theme.colors.primary }]}
+          >
             {support?.league_name || 'Global'}
           </Text>
         </View>
         <View style={styles.rightActions}>
-          <Text style={styles.timestamp}>{formatTimeAgo(post.created_at)}</Text>
+          <Text style={[styles.timestamp, { color: theme.colors.subText }]}>
+            {formatTimeAgo(post.created_at)}
+          </Text>
           <TouchableOpacity
             onPress={handleMenuPress}
             style={styles.menuIconButton}
@@ -182,7 +295,7 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
             <MaterialCommunityIcons
               name="dots-horizontal"
               size={22}
-              color="#64748B"
+              color={theme.colors.primary}
             />
           </TouchableOpacity>
         </View>
@@ -202,15 +315,82 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
             style={styles.avatar}
           />
           <View style={styles.nameColumn}>
-            <Text style={styles.username}>
-              {author?.display_name || author?.username || 'Fan'}
-            </Text>
-            <Text style={styles.supportStatus}>
-              Supports{' '}
-              <Text style={styles.teamName}>
-                {support?.team_name || 'All Teams'}
+            {/* Username and Badge Row */}
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={[styles.username, { color: theme.colors.text }]}>
+                {author?.display_name || author?.username || 'Fan'}
               </Text>
-            </Text>
+
+              {/* 🚀 BADGE LOGIC FOR ALL 5 TYPES */}
+
+              {/* 1. Official Media (BBC, Sky Sports) */}
+              {author?.badge_type === 'official' && (
+                <MaterialCommunityIcons
+                  name="check-decagram"
+                  size={16}
+                  color="#FFD700"
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+
+              {/* 2. Verified Personality (Pro Athletes, Journalists) */}
+              {author?.badge_type === 'verified' && (
+                <MaterialCommunityIcons
+                  name="check-decagram"
+                  size={16}
+                  color="#1DA1F2"
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+
+              {/* 3. Pioneer Member (Early Adopters in Eldoret/Global) */}
+              {author?.badge_type === 'pioneer' && (
+                <MaterialCommunityIcons
+                  name="rocket-launch"
+                  size={15}
+                  color="#BB86FC"
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+
+              {/* 4. Verified Superfan (High Engagement) */}
+              {author?.badge_type === 'superfan' && (
+                <MaterialCommunityIcons
+                  name="shield-check"
+                  size={16}
+                  color="#FF4500"
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+
+              {/* 5. None (Explicitly handle 'none' if needed, or just let it fall through) */}
+              {author?.badge_type === 'none' && null}
+            </View>
+
+            {/* Sub-text Logic */}
+            {support ? (
+              <Text
+                style={[styles.supportStatus, { color: theme.colors.subText }]}
+              >
+                Supports{' '}
+                <Text
+                  style={[styles.teamName, { color: theme.colors.primary }]}
+                >
+                  {support?.team_name}
+                </Text>
+              </Text>
+            ) : (
+              <Text
+                style={[styles.supportStatus, { color: theme.colors.subText }]}
+              >
+                {/* If not a fan, show their professional role */}
+                {author?.account_type === 'news'
+                  ? 'News / Media'
+                  : author?.account_type === 'organization'
+                  ? 'Official Organization'
+                  : 'Sports Fan'}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -218,7 +398,14 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
           <TouchableOpacity
             style={[
               styles.smallFollowBtn,
-              isFollowing && styles.smallFollowingBtn,
+              { backgroundColor: theme.colors.primary },
+              isFollowing && [
+                styles.smallFollowingBtn,
+                {
+                  borderColor: theme.colors.border,
+                  backgroundColor: 'transparent',
+                },
+              ],
             ]}
             onPress={handleFollowToggle}
             disabled={followLoading}
@@ -226,12 +413,19 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
             {followLoading ? (
               <ActivityIndicator
                 size="small"
-                color={isFollowing ? '#1E90FF' : '#FFF'}
+                color={
+                  isFollowing ? theme.colors.primary : theme.colors.buttonText
+                }
               />
             ) : (
               <Text
                 style={[
                   styles.smallFollowText,
+                  {
+                    color: isFollowing
+                      ? theme.colors.subText
+                      : theme.colors.buttonText,
+                  },
                   isFollowing && styles.smallFollowingText,
                 ]}
               >
@@ -252,8 +446,8 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
             <View pointerEvents="box-none">
               <Autolink
                 text={post.content}
-                style={styles.postText}
-                linkStyle={styles.linkText}
+                style={[styles.postText, { color: theme.colors.text }]}
+                linkStyle={[styles.linkText, { color: theme.colors.primary }]}
                 mention="twitter"
                 hashtag="instagram"
                 url={true}
@@ -289,20 +483,30 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
                 style={styles.miniAvatar}
               />
               <View>
-                <Text style={styles.quoteUsername}>
+                <Text
+                  style={[styles.quoteUsername, { color: theme.colors.text }]}
+                >
                   {originalData.author_details?.display_name}
                 </Text>
                 {originalData.supporting_info?.team_name && (
-                  <Text style={styles.quoteTeamText}>
+                  <Text
+                    style={[
+                      styles.quoteTeamText,
+                      { color: theme.colors.subText },
+                    ]}
+                  >
                     Supports{' '}
-                    <Text style={{ color: '#1E90FF' }}>
+                    <Text style={{ color: theme.colors.primary }}>
                       {originalData.supporting_info.team_name}
                     </Text>
                   </Text>
                 )}
               </View>
             </View>
-            <Text style={styles.quoteContent} numberOfLines={3}>
+            <Text
+              style={[styles.quoteContent, { color: theme.colors.text }]}
+              numberOfLines={3}
+            >
               {originalData.content}
             </Text>
           </TouchableOpacity>
@@ -328,7 +532,7 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
         )}
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() => {
@@ -344,34 +548,42 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
           <MaterialCommunityIcons
             name={liked ? 'heart' : 'heart-outline'}
             size={22}
-            color={liked ? '#FF4B4B' : '#94A3B8'}
+            color={
+              liked ? theme.colors.notificationBadge : theme.colors.primary
+            }
           />
-          <Text style={styles.actionText}>{likesCount}</Text>
+          <Text style={[styles.actionText, { color: theme.colors.subText }]}>
+            {likesCount}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionBtn} onPress={onCommentPress}>
           <MaterialCommunityIcons
             name="comment-text-outline"
             size={20}
-            color="#94A3B8"
+            color={theme.colors.primary}
           />
-          <Text style={styles.actionText}>{post.comments_count || 0}</Text>
+          <Text style={[styles.actionText, { color: theme.colors.subText }]}>
+            {post.comments_count || 0}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionBtn} onPress={handleRepostPress}>
           <MaterialCommunityIcons
             name="repeat"
             size={22}
-            color={isSimpleRepost ? '#10B981' : '#94A3B8'}
+            color={isSimpleRepost ? '#10B981' : theme.colors.primary}
           />
-          <Text style={styles.actionText}>{post.reposts_count || 0}</Text>
+          <Text style={[styles.actionText, { color: theme.colors.subText }]}>
+            {post.reposts_count || 0}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionBtn}>
           <MaterialCommunityIcons
             name="share-variant-outline"
             size={20}
-            color="#94A3B8"
+            color={theme.colors.primary}
           />
         </TouchableOpacity>
       </View>
@@ -381,10 +593,19 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#0D1F2D',
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 6,
-    borderBottomColor: '#050B10',
+    borderBottomColor: 'transparent', // Will be overridden in JSX if needed
+    marginBottom: 8,
+    marginHorizontal: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   repostIndicator: {
     flexDirection: 'row',
@@ -393,7 +614,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   repostUserText: {
-    color: '#64748B',
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 8,
@@ -408,13 +628,11 @@ const styles = StyleSheet.create({
   leagueTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E90FF15',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
   },
   leagueHeaderText: {
-    color: '#1E90FF',
     fontSize: 10,
     fontWeight: '800',
     marginLeft: 4,
@@ -422,7 +640,7 @@ const styles = StyleSheet.create({
   },
   rightActions: { flexDirection: 'row', alignItems: 'center' },
   menuIconButton: { paddingLeft: 10 },
-  timestamp: { color: '#64748B', fontSize: 11, marginRight: 5 },
+  timestamp: { fontSize: 11, marginRight: 5 },
   authorSection: {
     flexDirection: 'row',
     paddingHorizontal: 15,
@@ -434,14 +652,12 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#1A2A3D',
   },
   nameColumn: { marginLeft: 12 },
-  username: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
-  supportStatus: { color: '#94A3B8', fontSize: 12, marginTop: 1 },
-  teamName: { color: '#1E90FF', fontWeight: '600' },
+  username: { fontWeight: 'bold', fontSize: 16 },
+  supportStatus: { fontSize: 12, marginTop: 1 },
+  teamName: { fontWeight: '600' },
   smallFollowBtn: {
-    backgroundColor: '#1E90FF',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 15,
@@ -451,38 +667,33 @@ const styles = StyleSheet.create({
   smallFollowingBtn: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#64748B',
   },
-  smallFollowText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
-  smallFollowingText: { color: '#64748B' },
+  smallFollowText: { fontSize: 11, fontWeight: 'bold' },
+  smallFollowingText: {},
   contentBody: { paddingHorizontal: 15, marginBottom: 10 },
   postText: {
-    color: '#F1F5F9',
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 10,
   },
   // 🚀 New Link Style
-  linkText: { color: '#1E90FF', fontWeight: 'bold' },
+  linkText: { fontWeight: 'bold' },
   quoteBox: {
     marginTop: 5,
     borderWidth: 1,
-    borderColor: '#1E293B',
     borderRadius: 12,
     padding: 12,
-    backgroundColor: '#050B10',
   },
   quoteHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   miniAvatar: { width: 18, height: 18, borderRadius: 9, marginRight: 8 },
-  quoteUsername: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
-  quoteContent: { color: '#CBD5E1', fontSize: 14, lineHeight: 20 },
+  quoteUsername: { fontWeight: 'bold', fontSize: 13 },
+  quoteContent: { fontSize: 14, lineHeight: 20 },
   mediaWrapper: {
     width: width - 30,
     height: 240,
     alignSelf: 'center',
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: '#1A2A3D',
     marginTop: 10,
   },
   mediaImage: { width: '100%', height: '100%' },
@@ -493,11 +704,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: 12,
     borderTopWidth: 0.5,
-    borderTopColor: '#1E293B',
   },
   actionBtn: { flexDirection: 'row', alignItems: 'center' },
   actionText: {
-    color: '#94A3B8',
     marginLeft: 8,
     fontSize: 13,
     fontWeight: '600',

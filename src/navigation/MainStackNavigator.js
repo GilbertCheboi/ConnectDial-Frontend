@@ -7,6 +7,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 // 🚀 Import the universal screen (formerly CreateProfileScreen)
 import EditProfileScreen from '../screens/onboarding/EditProfileScreen';
+import ShortEditorScreen from '../screens/ShortEditorScreen';
 
 const Stack = createStackNavigator();
 
@@ -63,6 +64,17 @@ export default function MainStackNavigator() {
         options={{
           headerShown: true,
           title: 'Edit Profile',
+          headerStyle: { backgroundColor: '#0D1F2D' },
+          headerTintColor: '#fff',
+        }}
+      />
+
+      <Stack.Screen
+        name="ShortEditor"
+        component={ShortEditorScreen}
+        options={{
+          headerShown: true,
+          title: 'Edit Short',
           headerStyle: { backgroundColor: '#0D1F2D' },
           headerTintColor: '#fff',
         }}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -13,15 +13,23 @@ import {
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import api from '../../api/client';
+import { AuthContext } from '../../store/authStore';
 
 const API_BASE_URL = 'http://192.168.100.107:8000';
 
 export default function ChooseTeamsScreen({ route, navigation }) {
-  const { selectedLeagues, mode } = route.params || {
+  const { user } = useContext(AuthContext);
+  const {
+    selectedLeagues,
+    accountType = 'fan',
+    mode,
+  } = route.params || {
     selectedLeagues: [],
+    accountType: 'fan',
     mode: 'onboarding',
   };
   const isAddingNew = mode === 'add';
+  const isEditMode = mode === 'edit';
 
   const [teamsData, setTeamsData] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
@@ -32,6 +40,22 @@ export default function ChooseTeamsScreen({ route, navigation }) {
   useEffect(() => {
     fetchTeams();
   }, []);
+
+  useEffect(() => {
+    if (
+      isEditMode &&
+      user?.fan_preferences &&
+      Object.keys(teamsData).length > 0
+    ) {
+      const currentSelected = {};
+      user.fan_preferences.forEach(pref => {
+        if (selectedLeagues.includes(pref.league)) {
+          currentSelected[pref.league] = pref.team;
+        }
+      });
+      setSelectedTeams(currentSelected);
+    }
+  }, [isEditMode, user, teamsData, selectedLeagues]);
 
   const fetchTeams = async () => {
     try {
@@ -63,6 +87,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
 
     setIsSubmitting(true);
     const payload = {
+      account_type: accountType,
       fan_preferences: Object.entries(selectedTeams).map(([lId, tId]) => ({
         league: parseInt(lId),
         team: tId,
@@ -70,15 +95,32 @@ export default function ChooseTeamsScreen({ route, navigation }) {
       append_mode: isAddingNew,
     };
 
+    console.log('🚀 Fan account - Saving preferences:', accountType);
+    console.log('📋 Payload being sent:', JSON.stringify(payload, null, 2));
+    console.log('📊 Selected teams:', selectedTeams);
+
     try {
-      await api.post('auth/onboarding/', payload);
-      if (isAddingNew) {
+      const response = await api.post('auth/onboarding/', payload);
+      console.log('✅ Preferences saved successfully:', response.data);
+
+      if (isEditMode) {
+        Alert.alert('Success', 'Your preferences have been updated!');
+        navigation.goBack(); // Go back to the drawer or previous screen
+      } else if (isAddingNew) {
         navigation.navigate('MainApp', { screen: 'Profile' });
       } else {
         navigation.navigate('CreateProfile');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to save preferences.');
+      console.error('❌ Save preferences error:');
+      console.error('Error response data:', error.response?.data);
+      console.error('Error message:', error.message);
+      console.error('Full error:', error);
+
+      Alert.alert(
+        'Error',
+        'Failed to save preferences. Check console for details.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -178,7 +220,9 @@ export default function ChooseTeamsScreen({ route, navigation }) {
           renderItem={renderLeagueRow}
           ListHeaderComponent={
             <View style={styles.header}>
-              <Text style={styles.title}>Pick Your Teams</Text>
+              <Text style={styles.title}>
+                {isEditMode ? 'Update Your Teams' : 'Pick Your Teams'}
+              </Text>
               <View style={styles.searchBox}>
                 <MaterialCommunityIcons
                   name="magnify"
@@ -209,7 +253,9 @@ export default function ChooseTeamsScreen({ route, navigation }) {
             {isSubmitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.btnText}>Continue</Text>
+              <Text style={styles.btnText}>
+                {isEditMode ? 'Update Preferences' : 'Continue'}
+              </Text>
             )}
           </TouchableOpacity>
         </View>

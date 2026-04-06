@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import api from '../api/client';
 import { AuthContext } from '../store/authStore';
+import { ThemeContext } from '../store/themeStore';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // --- HELPER: TIME FORMATTING ---
@@ -30,6 +31,18 @@ const formatTimeAgo = dateString => {
 // --- CHILD COMPONENT: COMMENT ITEM ---
 const CommentItem = ({ comment, postAuthorId, onDelete, onEdit }) => {
   const { user } = useContext(AuthContext);
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        text: '#FFFFFF',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        surface: '#1E293B',
+        border: '#334155',
+        notificationBadge: '#FF4B4B',
+      },
+    },
+  };
   const author = comment.author_details;
   const support = comment.supporting_info; // 🚀 Team info
 
@@ -109,30 +122,53 @@ const CommentItem = ({ comment, postAuthorId, onDelete, onEdit }) => {
                 <MaterialCommunityIcons
                   name={comment.liked_by_me ? 'heart' : 'heart-outline'}
                   size={14}
-                  color={comment.liked_by_me ? '#FF4B4B' : '#94A3B8'}
+                  color={
+                    comment.liked_by_me
+                      ? theme.colors.notificationBadge
+                      : theme.colors.subText
+                  }
                 />
                 <Text
                   style={[
                     styles.actionText,
-                    comment.liked_by_me && { color: '#FF4B4B' },
+                    { color: theme.colors.subText },
+                    comment.liked_by_me && {
+                      color: theme.colors.notificationBadge,
+                    },
                   ]}
                 >
                   {comment.likes_count || 0}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionItem, { marginLeft: 20 }]}>
-                <Text style={styles.actionText}>Reply</Text>
+                <Text
+                  style={[styles.actionText, { color: theme.colors.subText }]}
+                >
+                  Reply
+                </Text>
               </TouchableOpacity>
             </View>
 
             {isLikedByAuthor && (
-              <View style={styles.authorLikeBadge}>
+              <View
+                style={[
+                  styles.authorLikeBadge,
+                  { backgroundColor: `${theme.colors.notificationBadge}15` },
+                ]}
+              >
                 <MaterialCommunityIcons
                   name="heart"
                   size={10}
-                  color="#FF4B4B"
+                  color={theme.colors.notificationBadge}
                 />
-                <Text style={styles.authorLikeText}>Liked by Author</Text>
+                <Text
+                  style={[
+                    styles.authorLikeText,
+                    { color: theme.colors.notificationBadge },
+                  ]}
+                >
+                  Liked by Author
+                </Text>
               </View>
             )}
           </View>
@@ -151,6 +187,19 @@ export default function CommentsScreen({ route }) {
   const [loading, setLoading] = useState(true);
   const [editingComment, setEditingComment] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#1E293B',
+        text: '#FFFFFF',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        border: '#1E293B',
+        inputBackground: '#1E293B',
+      },
+    },
+  };
 
   useEffect(() => {
     fetchComments();
@@ -209,10 +258,12 @@ export default function CommentsScreen({ route }) {
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1E90FF" />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <FlatList
@@ -230,7 +281,9 @@ export default function CommentsScreen({ route }) {
             />
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No comments yet.</Text>
+            <Text style={[styles.emptyText, { color: theme.colors.subText }]}>
+              No comments yet.
+            </Text>
           }
         />
       )}
@@ -240,8 +293,15 @@ export default function CommentsScreen({ route }) {
         keyboardVerticalOffset={90}
       >
         {editingComment && (
-          <View style={styles.editIndicator}>
-            <Text style={styles.editText}>Editing comment...</Text>
+          <View
+            style={[
+              styles.editIndicator,
+              { backgroundColor: theme.colors.surface },
+            ]}
+          >
+            <Text style={[styles.editText, { color: theme.colors.subText }]}>
+              Editing comment...
+            </Text>
             <TouchableOpacity
               onPress={() => {
                 setEditingComment(null);
@@ -251,16 +311,30 @@ export default function CommentsScreen({ route }) {
               <MaterialCommunityIcons
                 name="close-circle"
                 size={18}
-                color="#FF4B4B"
+                color={theme.colors.notificationBadge}
               />
             </TouchableOpacity>
           </View>
         )}
-        <View style={styles.inputRow}>
+        <View
+          style={[
+            styles.inputRow,
+            {
+              backgroundColor: theme.colors.surface,
+              borderTopColor: theme.colors.border,
+            },
+          ]}
+        >
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                color: theme.colors.text,
+                backgroundColor: theme.colors.inputBackground,
+              },
+            ]}
             placeholder="Write a comment..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.colors.subText}
             value={newComment}
             onChangeText={setNewComment}
             multiline
@@ -270,9 +344,9 @@ export default function CommentsScreen({ route }) {
             disabled={!newComment.trim() || isSubmitting}
           >
             {isSubmitting ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={theme.colors.text} />
             ) : (
-              <Text style={styles.sendText}>
+              <Text style={[styles.sendText, { color: theme.colors.primary }]}>
                 {editingComment ? 'Update' : 'Post'}
               </Text>
             )}
@@ -284,7 +358,7 @@ export default function CommentsScreen({ route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D1F2D' },
+  container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   commentContainer: {
     flexDirection: 'row',
@@ -305,10 +379,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     flexWrap: 'wrap',
   },
-  commentUser: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-  commentTime: { color: '#64748B', fontSize: 11, marginLeft: 'auto' },
-  commentBody: { color: '#F1F5F9', fontSize: 14, lineHeight: 20 },
-  mentionText: { color: '#1E90FF', fontWeight: 'bold' },
+  commentUser: { fontWeight: 'bold', fontSize: 14 },
+  commentTime: { fontSize: 11, marginLeft: 'auto' },
+  commentBody: { fontSize: 14, lineHeight: 20 },
+  mentionText: { fontWeight: 'bold' },
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -318,7 +392,6 @@ const styles = StyleSheet.create({
   commentActions: { flexDirection: 'row' },
   actionItem: { flexDirection: 'row', alignItems: 'center' },
   actionText: {
-    color: '#94A3B8',
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 4,
@@ -326,33 +399,28 @@ const styles = StyleSheet.create({
 
   // Badges
   teamBadge: {
-    backgroundColor: '#1E293B',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
     marginLeft: 6,
     borderWidth: 0.5,
-    borderColor: '#334155',
   },
-  teamBadgeText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
+  teamBadgeText: { fontSize: 10, fontWeight: '600' },
   authorTag: {
-    backgroundColor: '#1E90FF30',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
     marginLeft: 6,
   },
-  authorTagText: { color: '#1E90FF', fontSize: 9, fontWeight: 'bold' },
+  authorTagText: { fontSize: 9, fontWeight: 'bold' },
   authorLikeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF4B4B15',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
   authorLikeText: {
-    color: '#FF4B4B',
     fontSize: 9,
     fontWeight: 'bold',
     marginLeft: 3,
@@ -362,28 +430,23 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#162A3B',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#1E293B',
   },
   input: {
     flex: 1,
-    color: '#fff',
-    backgroundColor: '#0D1F2D',
     borderRadius: 20,
     paddingHorizontal: 15,
     paddingVertical: 8,
     marginRight: 10,
   },
-  sendText: { color: '#1E90FF', fontWeight: 'bold', fontSize: 16 },
+  sendText: { fontWeight: 'bold', fontSize: 16 },
   editIndicator: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
     paddingHorizontal: 15,
     paddingVertical: 6,
     justifyContent: 'space-between',
   },
-  editText: { color: '#94A3B8', fontSize: 12, fontStyle: 'italic' },
-  emptyText: { color: '#94A3B8', textAlign: 'center', marginTop: 40 },
+  editText: { fontSize: 12, fontStyle: 'italic' },
+  emptyText: { textAlign: 'center', marginTop: 40 },
 });

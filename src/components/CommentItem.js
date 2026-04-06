@@ -13,6 +13,7 @@ import Autolink from 'react-native-autolink';
 import { useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../store/authStore';
 import api from '../api/client';
+import { ThemeContext } from '../store/themeStore';
 
 const CommentItem = ({
   comment,
@@ -22,6 +23,34 @@ const CommentItem = ({
 }) => {
   const { user } = useContext(AuthContext);
   const navigation = useNavigation();
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0A1624',
+        surface: '#0D1F2D',
+        card: '#112634',
+        text: '#F8FAFC',
+        subText: '#94A3B8',
+        border: '#1E293B',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+        icon: '#1E90FF',
+        button: '#1E90FF',
+        buttonText: '#FFFFFF',
+        inputBackground: '#112634',
+        overlay: 'rgba(255, 255, 255, 0.05)',
+        drawerBackground: '#0D1F2D',
+        drawerText: '#F8FAFC',
+        drawerIcon: '#1E90FF',
+        tabBar: '#0D1F2D',
+        tabBarInactive: '#64748B',
+        header: '#0D1F2D',
+        headerTint: '#F8FAFC',
+        notificationBadge: '#FF4B4B',
+        sheetBackground: '#0D1F2D',
+      },
+    },
+  };
 
   // 🚀 Data from your new CommentSerializer logic
   const author = comment.author_details;
@@ -34,7 +63,9 @@ const CommentItem = ({
   // 🚀 Profile Image with Absolute URI from Serializer or UI-Avatars fallback
   const profileImageUri = author?.profile_pic
     ? author.profile_pic
-    : `https://ui-avatars.com/api/?name=${author?.username || 'U'}&background=162A3B&color=fff`;
+    : `https://ui-avatars.com/api/?name=${
+        author?.username || 'U'
+      }&background=162A3B&color=fff`;
 
   const handleLongPress = () => {
     if (!isCommentOwner) return;
@@ -64,22 +95,26 @@ const CommentItem = ({
   };
 
   return (
-    <TouchableOpacity 
-      onLongPress={handleLongPress} 
-      activeOpacity={0.9}
-    >
+    <TouchableOpacity onLongPress={handleLongPress} activeOpacity={0.9}>
       <View style={styles.commentContainer}>
         {/* 🚀 Profile Image */}
-        <TouchableOpacity onPress={() => navigation.navigate('Profile', { userId: author?.id })}>
-          <Image source={{ uri: profileImageUri }} style={styles.commentAvatar} />
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Profile', { userId: author?.id })}
+        >
+          <Image
+            source={{ uri: profileImageUri }}
+            style={styles.commentAvatar}
+          />
         </TouchableOpacity>
 
         <View style={styles.commentContent}>
           <View style={styles.commentHeader}>
             <TouchableOpacity
-              onPress={() => navigation.navigate('Profile', { userId: author?.id })}
+              onPress={() =>
+                navigation.navigate('Profile', { userId: author?.id })
+              }
             >
-              <Text style={styles.commentUser}>
+              <Text style={[styles.commentUser, { color: theme.colors.text }]}>
                 {/* 🚀 Using display_name from Serializer */}
                 {author?.display_name || author?.username || 'User'}
               </Text>
@@ -87,14 +122,35 @@ const CommentItem = ({
 
             {/* 🚀 Team Badge restored from supporting_info */}
             {support?.team_name && (
-              <View style={styles.teamBadge}>
-                <Text style={styles.teamBadgeText}>{support.team_name}</Text>
+              <View
+                style={[
+                  styles.teamBadge,
+                  {
+                    backgroundColor: theme.colors.primary + '20',
+                    borderColor: theme.colors.primary,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.teamBadgeText,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  {support.team_name}
+                </Text>
               </View>
             )}
 
             {isPostAuthor && (
-              <View style={styles.tag}>
-                <Text style={styles.tagText}>Author</Text>
+              <View
+                style={[styles.tag, { backgroundColor: theme.colors.primary }]}
+              >
+                <Text
+                  style={[styles.tagText, { color: theme.colors.buttonText }]}
+                >
+                  Author
+                </Text>
               </View>
             )}
           </View>
@@ -102,8 +158,8 @@ const CommentItem = ({
           {/* 🚀 Autolink for Mentions and Hashtags */}
           <Autolink
             text={comment.content}
-            style={styles.commentBody}
-            linkStyle={styles.linkText}
+            style={[styles.commentBody, { color: theme.colors.text }]}
+            linkStyle={[styles.linkText, { color: theme.colors.primary }]}
             mention="twitter"
             hashtag="instagram"
             onPress={(url, match) => {
@@ -123,25 +179,50 @@ const CommentItem = ({
             <View style={styles.commentActions}>
               <TouchableOpacity style={styles.miniAction} onPress={handleLike}>
                 <MaterialCommunityIcons
-                  name={isLikedByMe ? "heart" : "heart-outline"}
+                  name={isLikedByMe ? 'heart' : 'heart-outline'}
                   size={14}
-                  color={isLikedByMe ? "#FF4B4B" : "#94A3B8"}
+                  color={
+                    isLikedByMe
+                      ? theme.colors.notificationBadge
+                      : theme.colors.subText
+                  }
                 />
-                <Text style={[styles.actionText, isLikedByMe && { color: '#FF4B4B' }]}>
+                <Text
+                  style={[
+                    styles.actionText,
+                    { color: theme.colors.subText },
+                    isLikedByMe && { color: theme.colors.notificationBadge },
+                  ]}
+                >
                   {comment.likes_count || 0}
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity style={[styles.miniAction, { marginLeft: 20 }]}>
-                <Text style={styles.actionText}>Reply</Text>
+                <Text
+                  style={[styles.actionText, { color: theme.colors.subText }]}
+                >
+                  Reply
+                </Text>
               </TouchableOpacity>
             </View>
 
             {/* 🚀 Notification that the post author liked this comment */}
             {comment.liked_by_author && (
               <View style={styles.authorLikeBadge}>
-                <MaterialCommunityIcons name="heart" size={10} color="#FF4B4B" />
-                <Text style={styles.authorLikeText}>Liked by Author</Text>
+                <MaterialCommunityIcons
+                  name="heart"
+                  size={10}
+                  color={theme.colors.notificationBadge}
+                />
+                <Text
+                  style={[
+                    styles.authorLikeText,
+                    { color: theme.colors.notificationBadge },
+                  ]}
+                >
+                  Liked by Author
+                </Text>
               </View>
             )}
           </View>
@@ -156,14 +237,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 15,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#162A3B',
-    backgroundColor: '#050B10',
   },
   commentAvatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#1A2A3D',
   },
   commentContent: { flex: 1, marginLeft: 12 },
   commentHeader: {
@@ -172,9 +250,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     flexWrap: 'wrap',
   },
-  commentUser: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  commentBody: { color: '#CBD5E1', fontSize: 14, lineHeight: 20 },
-  linkText: { color: '#1E90FF', fontWeight: '600' },
+  commentUser: { fontWeight: '700', fontSize: 14 },
+  commentBody: { fontSize: 14, lineHeight: 20 },
+  linkText: { fontWeight: '600' },
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -183,40 +261,34 @@ const styles = StyleSheet.create({
   },
   commentActions: { flexDirection: 'row', alignItems: 'center' },
   actionText: {
-    color: '#64748B',
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 4,
   },
   miniAction: { flexDirection: 'row', alignItems: 'center' },
   teamBadge: {
-    backgroundColor: '#1E293B',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
     marginLeft: 8,
     borderWidth: 0.5,
-    borderColor: '#334155',
   },
-  teamBadgeText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
+  teamBadgeText: { fontSize: 10, fontWeight: '600' },
   tag: {
-    backgroundColor: 'rgba(30, 144, 255, 0.15)',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
     marginLeft: 8,
   },
-  tagText: { color: '#1E90FF', fontSize: 9, fontWeight: 'bold' },
+  tagText: { fontSize: 9, fontWeight: 'bold' },
   authorLikeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 75, 75, 0.1)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
   authorLikeText: {
-    color: '#FF4B4B',
     fontSize: 9,
     fontWeight: 'bold',
     marginLeft: 3,

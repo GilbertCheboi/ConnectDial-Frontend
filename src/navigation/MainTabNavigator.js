@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Platform, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-// 🚀 1. Import the hook correctly
 import { useNotifications } from '../store/NotificationContext';
+import { ThemeContext } from '../store/themeStore';
 
 // Screens
 import HomeScreen from '../screens/HomeScreen';
@@ -17,13 +17,22 @@ const Tab = createBottomTabNavigator();
 export default function MainTabNavigator() {
   // 🚀 2. Pull the unreadCount from your global store
   const { unreadCount } = useNotifications();
+  const themeContext = useContext(ThemeContext) || {};
+  const theme = themeContext.theme || {
+    colors: {
+      tabBar: '#0D1F2D',
+      tabBarInactive: '#888',
+      primary: '#1E90FF',
+      border: '#162A3B',
+    },
+  };
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: '#1E90FF',
-        tabBarInactiveTintColor: '#888',
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.tabBarInactive,
         // 🚀 DYNAMIC TAB BAR HIDING
         tabBarStyle: (route => {
           const routeName = route.name;
@@ -31,9 +40,9 @@ export default function MainTabNavigator() {
             return { display: 'none' }; // Completely removes Tab Bar for Shorts
           }
           return {
-            backgroundColor: '#0D1F2D',
+            backgroundColor: theme.colors.tabBar,
             borderTopWidth: 0.5,
-            borderTopColor: '#162A3B',
+            borderTopColor: theme.colors.border,
             height: Platform.OS === 'ios' ? 88 : 70,
             paddingBottom: Platform.OS === 'ios' ? 30 : 12,
             paddingTop: 10,
