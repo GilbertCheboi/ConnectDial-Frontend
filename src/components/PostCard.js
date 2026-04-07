@@ -36,6 +36,10 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   const { user } = useContext(AuthContext);
   const { followingIds, updateFollowStatus } = useFollow();
   const navigation = useNavigation();
+  const [isExpanded, setIsExpanded] = React.useState(false);
+
+  const TEXT_LIMIT = 180;
+  const shouldTruncate = post.content?.length > TEXT_LIMIT;
   const { theme } = useContext(ThemeContext) || {
     theme: {
       colors: {
@@ -445,13 +449,16 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
           {post.content ? (
             <View pointerEvents="box-none">
               <Autolink
-                text={post.content}
+                text={
+                  shouldTruncate && !isExpanded
+                    ? `${post.content.substring(0, TEXT_LIMIT)}...`
+                    : post.content
+                }
                 style={[styles.postText, { color: theme.colors.text }]}
                 linkStyle={[styles.linkText, { color: theme.colors.primary }]}
                 mention="twitter"
                 hashtag="instagram"
                 url={true}
-                // This ensures the Autolink doesn't swallow touches meant for the parent
                 onPress={(url, match) => {
                   if (match.getType() === 'mention') {
                     const cleanUsername = match
@@ -459,7 +466,6 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
                       .replace('@', '');
                     navigation.navigate('Profile', { username: cleanUsername });
                   } else if (match.getType() === 'hashtag') {
-                    // 🚀 Changed: Use the full tag including # for the search query
                     const tag = match.getAnchorText();
                     navigation.navigate('Search', { query: tag });
                   } else {
@@ -467,51 +473,154 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
                   }
                 }}
               />
+
+              {/* 🚀 "SEE MORE" TOGGLE BUTTON */}
+              {shouldTruncate && (
+                <TouchableOpacity
+                  onPress={() => setIsExpanded(!isExpanded)}
+                  style={{ marginTop: 6, alignSelf: 'flex-start' }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.primary,
+                      fontWeight: 'bold',
+                      fontSize: 13,
+                    }}
+                  >
+                    {isExpanded ? 'Show Less' : 'See More'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : null}
         </TouchableOpacity>
         {originalData && (
           <TouchableOpacity
             style={styles.quoteBox}
+            activeOpacity={0.8}
             onPress={() =>
               navigation.navigate('PostDetail', { postId: originalData.id })
             }
           >
             <View style={styles.quoteHeader}>
+              {/* 1. Author Avatar with fallback */}
               <Image
-                source={{ uri: originalData.author_details?.profile_pic }}
+                source={{
+                  uri:
+                    originalData.author_details?.profile_pic ||
+                    `https://ui-avatars.com/api/?name=${originalData.author_details?.username}`,
+                }}
                 style={styles.miniAvatar}
               />
-              <View>
-                <Text
-                  style={[styles.quoteUsername, { color: theme.colors.text }]}
-                >
-                  {originalData.author_details?.display_name}
-                </Text>
-                {originalData.supporting_info?.team_name && (
+
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  {/* 2. Quoted Author Name */}
+                  <Text
+                    style={[styles.quoteUsername, { color: theme.colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {originalData.author_details?.display_name ||
+                      originalData.author_details?.username}
+                  </Text>
+
+                  {/* 3. Badge Logic for all 5 Types */}
+                  {originalData.author_details?.badge_type === 'official' && (
+                    <MaterialCommunityIcons
+                      name="check-decagram"
+                      size={14}
+                      color="#FFD700"
+                      style={{ marginLeft: 3 }}
+                    />
+                  )}
+                  {originalData.author_details?.badge_type === 'verified' && (
+                    <MaterialCommunityIcons
+                      name="check-decagram"
+                      size={14}
+                      color="#1DA1F2"
+                      style={{ marginLeft: 3 }}
+                    />
+                  )}
+                  {originalData.author_details?.badge_type === 'pioneer' && (
+                    <MaterialCommunityIcons
+                      name="rocket-launch"
+                      size={13}
+                      color="#BB86FC"
+                      style={{ marginLeft: 3 }}
+                    />
+                  )}
+                  {originalData.author_details?.badge_type === 'superfan' && (
+                    <MaterialCommunityIcons
+                      name="shield-check"
+                      size={14}
+                      color="#FF4500"
+                      style={{ marginLeft: 3 }}
+                    />
+                  )}
+                </View>
+
+                {/* 4. Support Status vs Role Label */}
+                {originalData.supporting_info?.team_name ? (
                   <Text
                     style={[
                       styles.quoteTeamText,
-                      { color: theme.colors.subText },
+                      { color: theme.colors.subText, fontSize: 11 },
                     ]}
                   >
                     Supports{' '}
-                    <Text style={{ color: theme.colors.primary }}>
+                    <Text
+                      style={{ color: theme.colors.primary, fontWeight: '500' }}
+                    >
                       {originalData.supporting_info.team_name}
                     </Text>
+                  </Text>
+                ) : (
+                  <Text
+                    style={[
+                      styles.quoteTeamText,
+                      { color: theme.colors.subText, fontSize: 11 },
+                    ]}
+                  >
+                    {originalData.author_details?.account_type === 'news'
+                      ? 'News / Media'
+                      : originalData.author_details?.account_type ===
+                        'organization'
+                      ? 'Official Organization'
+                      : 'Sports Fan'}
                   </Text>
                 )}
               </View>
             </View>
+
+            {/* 5. Content: Truncated to 5 lines for a clean "Preview" feel */}
             <Text
-              style={[styles.quoteContent, { color: theme.colors.text }]}
-              numberOfLines={3}
+              style={[
+                styles.quoteContent,
+                { color: theme.colors.text, marginTop: 4 },
+              ]}
+              numberOfLines={5}
+              ellipsizeMode="tail"
             >
               {originalData.content}
             </Text>
+
+            {/* Optional: Small visual hint if text is long */}
+            {originalData.content?.split('\n').length > 5 ||
+            originalData.content?.length > 200 ? (
+              <Text
+                style={{
+                  color: theme.colors.primary,
+                  fontSize: 11,
+                  marginTop: 2,
+                  fontWeight: '600',
+                }}
+              >
+                Read full post...
+              </Text>
+            ) : null}
           </TouchableOpacity>
         )}
-
         {!originalData && post.media_file && (
           <View style={styles.mediaWrapper}>
             {post.media_file.endsWith('.mp4') ? (
