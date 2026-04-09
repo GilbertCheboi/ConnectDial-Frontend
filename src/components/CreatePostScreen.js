@@ -210,28 +210,41 @@ export default function CreatePostScreen({ route, navigation }) {
   }, [isFocused, quoteMode, parentPost]);
 
   // 4. Trigger reset when leaving
+  // 1. The Focus Guard: Only reset if we are truly abandoning the post
   useEffect(() => {
+    // Only trigger logic when we LOSE focus
     if (!isFocused) {
+      // We use a small timeout or check preserveOnBlur
+      // to ensure we aren't just mid-navigation to the editor
       if (!preserveOnBlur) {
         resetForm();
       }
     }
-  }, [isFocused, preserveOnBlur, resetForm]);
+  }, [isFocused, preserveOnBlur]); // removed resetForm from deps to prevent unnecessary triggers
 
+  // 2. The Data Receiver: Catch the edited video
   useEffect(() => {
     if (editedShort) {
       setPostType('short');
       setMediaList([editedShort]);
-      navigation.setParams({
-        editedShort: null,
-        preserveOnBlur: false,
-      });
+
+      // 🚀 THE FIX:
+      // We keep preserveOnBlur as TRUE until the state is fully updated
+      // to prevent the 'Focus Guard' from wiping the form.
+      setTimeout(() => {
+        navigation.setParams({
+          editedShort: null,
+          preserveOnBlur: true, // Keep it true while we are in the "Shorts" flow
+        });
+      }, 100);
     }
-  }, [editedShort, navigation]);
+  }, [editedShort]);
 
   const openShortEditor = useCallback(
     asset => {
+      // Tell the form: "Don't wipe yourself, I'm just going to the editor"
       navigation.setParams({ preserveOnBlur: true });
+
       navigation.navigate('ShortEditor', {
         videoAsset: asset,
         initialEditConfig: asset.editConfig || null,
@@ -246,7 +259,6 @@ export default function CreatePostScreen({ route, navigation }) {
       selectionLimit: 1,
       quality: 0.8,
       videoQuality: 'medium',
-      durationLimit: postType === 'short' ? 90 : undefined,
       formatAsMp4: true,
     };
     const result = await launchImageLibrary(options);
@@ -569,8 +581,10 @@ export default function CreatePostScreen({ route, navigation }) {
         onChange={setContent}
         placeholder={quoteMode ? 'Add a comment...' : "What's on your mind?"}
         placeholderTextColor={theme.colors.subText}
-        multiline
-        style={styles(theme).input} // Uses your existing styles
+        multiline={true}
+        numberOfLines={4} // Adds a hint to the keyboard that this is a large text area
+        blurOnSubmit={false}
+        style={styles(theme).input} // Ensure this has the minHeight: 150 we discussed
         partTypes={[
           {
             trigger: '@',
@@ -796,8 +810,12 @@ const styles = theme =>
     input: {
       color: theme.colors.text,
       fontSize: 18,
-      minHeight: 100,
-      textAlignVertical: 'top',
+      minHeight: 150, // Increased: Gives more visual "room" for paragraphs
+      textAlignVertical: 'top', // Critical: Keeps text at the top on Android
+      paddingHorizontal: 12, // Better readability: text shouldn't touch the edges
+      paddingTop: 15, // Space at the top
+      paddingBottom: 20, // Extra space at bottom so text doesn't feel cramped
+      lineHeight: 24, // Essential: Adds vertical space between lines for readability
     },
 
     // 🚀 QUOTE PREVIEW STYLES

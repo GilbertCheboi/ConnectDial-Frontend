@@ -18,6 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import api from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import { ThemeContext } from '../store/themeStore';
+import { useFollow } from '../store/FollowContext';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('screen');
 
@@ -36,8 +37,15 @@ const ShortItem = React.memo(({ item, isVisible, navigation, theme }) => {
   const [userPaused, setUserPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
+  const { followingIds, updateFollowStatus } = useFollow();
+
   const youtubeId = getYouTubeId(item.content);
   const support = item.supporting_info || {};
+  const author = item.author || item.author_details || {};
+  const isOwner = author.id === support.current_user_id;
+  const isFollowing =
+    followingIds.has(author?.id) ||
+    (author?.is_following && !followingIds.has(-author?.id));
 
   // --- HYBRID DATA MAPPING (FIXES USERNAME/TEAM/LEAGUE) ---
   const username =
@@ -56,8 +64,43 @@ const ShortItem = React.memo(({ item, isVisible, navigation, theme }) => {
   const feedbackScale = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
 
+  const startTime = useRef(null); // 🚀 NEW: Tracks when the view started
+
+  // 🚀 NEW: Engagement Reporting Logic
+  const reportEngagement = async () => {
+    if (!startTime.current) return;
+
+    const watchTime = (Date.now() - startTime.current) / 1000;
+    // Consider it completed if they watched 90% or at least 15 seconds
+    const isCompleted = watchTime >= 15;
+
+    try {
+      await api.post('api/posts/engagements/record/', {
+        post_id: item.id,
+        watch_time: watchTime,
+        completed: isCompleted,
+      });
+    } catch (err) {
+      // Silent error to not disrupt user experience
+      console.log('Engagement tracking failed');
+    } finally {
+      startTime.current = null;
+    }
+  };
+
   useEffect(() => {
-    if (!isVisible) setUserPaused(false);
+    if (isVisible) {
+      startTime.current = Date.now();
+      setUserPaused(false);
+    } else {
+      reportEngagement();
+      // This covers your second useEffect's logic too
+      setUserPaused(false);
+    }
+
+    return () => {
+      if (isVisible) reportEngagement();
+    };
   }, [isVisible]);
 
   const toggleLike = async () => {
@@ -111,6 +154,25 @@ const ShortItem = React.memo(({ item, isVisible, navigation, theme }) => {
       ]).start();
     }
     lastTap.current = now;
+  };
+
+  const [followLoading, setFollowLoading] = useState(false);
+
+  const handleFollowToggle = async () => {
+    if (followLoading) return;
+    const previousState = isFollowing;
+    const authorId = author?.id;
+    setFollowLoading(true);
+    updateFollowStatus(authorId, !previousState);
+    try {
+      const response = await api.post(`auth/users/${authorId}/toggle-follow/`);
+      updateFollowStatus(authorId, response.data.following);
+    } catch (err) {
+      updateFollowStatus(authorId, previousState);
+      Alert.alert('Error', 'Could not update follow status.');
+    } finally {
+      setFollowLoading(false);
+    }
   };
 
   return (
@@ -245,8 +307,53 @@ const ShortItem = React.memo(({ item, isVisible, navigation, theme }) => {
                 {teamName}
               </Text>
             </View>
-          )}
+          )}{' '}
+          <View>
+            {!isOwner && (
+              <TouchableOpacity
+                style={[
+                  styles.smallFollowBtn,
+                  { backgroundColor: theme.colors.primary },
+                  isFollowing && [
+                    styles.smallFollowingBtn,
+                    {
+                      borderColor: theme.colors.border,
+                      backgroundColor: 'transparent',
+                    },
+                  ],
+                ]}
+                onPress={handleFollowToggle}
+                disabled={followLoading}
+              >
+                {followLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={
+                      isFollowing
+                        ? theme.colors.primary
+                        : theme.colors.buttonText
+                    }
+                  />
+                ) : (
+                  <Text
+                    style={[
+                      styles.smallFollowText,
+                      {
+                        color: isFollowing
+                          ? theme.colors.subText
+                          : theme.colors.buttonText,
+                      },
+                      isFollowing && styles.smallFollowingText,
+                    ]}
+                  >
+                    {isFollowing ? 'Following' : 'Follow'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
+
         <Text
           style={[styles.caption, { color: theme.colors.subText }]}
           numberOfLines={2}
@@ -533,4 +640,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
+
+  smallFollowBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 15,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  smallFollowingBtn: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  smallFollowText: { fontSize: 11, fontWeight: 'bold' },
+  smallFollowingText: {},
 });
