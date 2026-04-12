@@ -78,6 +78,7 @@ export default function PostDetailScreen({ route }) {
     if (!newComment.trim() || isSubmitting) return;
     setIsSubmitting(true);
     const trimmedComment = newComment.trim();
+
     try {
       if (editingComment) {
         const res = await api.patch(
@@ -91,9 +92,12 @@ export default function PostDetailScreen({ route }) {
         );
         setEditingComment(null);
       } else {
+        // 🚀 THE FIX: Match the working payload by adding 'post: postId'
         const res = await api.post(`api/posts/${postId}/comments/`, {
           content: trimmedComment,
+          post: postId, // Add this line
         });
+
         setComments(prev => [res.data, ...prev]);
         setPost(prev => ({
           ...prev,
@@ -106,6 +110,7 @@ export default function PostDetailScreen({ route }) {
         'Post detail comment error:',
         JSON.stringify(e.response?.data || e.message, null, 2),
       );
+      Alert.alert('Error', 'Failed to post comment.');
     } finally {
       setIsSubmitting(false);
     }

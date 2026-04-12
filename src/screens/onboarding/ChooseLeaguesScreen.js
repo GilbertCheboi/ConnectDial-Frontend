@@ -85,16 +85,11 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
     }
   };
 
-  // const isAddingNew = route.params?.mode === 'add';
-
   const saveLeaguesAndProceed = async () => {
-    // For news/organization: Send fan_preferences with leagues but no teams
-    // This allows them to see their selected leagues in the drawer and create posts
     const payload = {
       account_type: accountType,
       fan_preferences: selectedLeagues.map(leagueId => ({
         league: leagueId,
-        // Omit team field entirely for news/organization accounts
       })),
       append_mode: isAddingNew,
     };
@@ -103,6 +98,7 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
     console.log('📋 Payload being sent:', JSON.stringify(payload, null, 2));
 
     try {
+      setLoading(true);
       const response = await api.post('auth/onboarding/', payload);
       console.log('✅ Preferences saved successfully:', response.data);
 
@@ -111,22 +107,25 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
         navigation.goBack();
         Alert.alert('Success', 'Leagues updated successfully!');
       } else {
-        // For onboarding, proceed to create profile
+        // 🚀 THE FIX: Pass selectedLeagues forward so CreateProfile knows they exist
+        // This prevents the "Organization accounts must select at least one league" error
         navigation.navigate('CreateProfile', {
-          accountType,
+          accountType: accountType,
           mode: 'onboarding',
+          selectedLeagues: selectedLeagues,
         });
       }
     } catch (error) {
       console.error('❌ Save preferences error:');
       console.error('Error response data:', error.response?.data);
       console.error('Error message:', error.message);
-      console.error('Full error:', error);
 
       Alert.alert(
         'Error',
         'Failed to save preferences. Check console for details.',
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -139,7 +138,6 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
         style={[styles.card, isSelected && styles.cardSelected]}
       >
         <View style={styles.logoContainer}>
-          {/* 🚀 Use { uri: item.logo } for Firebase Cloud URLs */}
           <Image
             source={{ uri: item.logo }}
             style={styles.logo}

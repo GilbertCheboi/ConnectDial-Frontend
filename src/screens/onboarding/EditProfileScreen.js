@@ -19,36 +19,34 @@ import { AuthContext } from '../../store/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function EditProfileScreen({ navigation, route }) {
-  // --- 1. CONTEXT & PARAMS ---
-  const { authData, setIsNew } = useContext(AuthContext);
+  const { setIsNew } = useContext(AuthContext);
 
-  // Check if we are in onboarding mode or normal edit mode
+  // --- 1. MODE & ONBOARDING DATA ---
   const mode = route.params?.mode || 'edit';
   const isOnboarding = mode === 'onboarding';
   const accountType = route.params?.accountType;
+  const selectedLeagues = route.params?.selectedLeagues || [];
 
   // --- 2. STATE ---
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
-  const [profileImage, setProfileImage] = useState(null); // Local uri for preview
-  const [bannerImage, setBannerImage] = useState(null); // Local uri for preview
-  const [currentData, setCurrentData] = useState(null); // Existing data from server
+  const [profileImage, setProfileImage] = useState(null);
+  const [bannerImage, setBannerImage] = useState(null);
+  const [currentData, setCurrentData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(!isOnboarding);
 
-  // --- 3. FETCH EXISTING DATA (If Editing) ---
+  // --- 3. FETCH EXISTING DATA ---
   useEffect(() => {
     if (!isOnboarding) {
       const fetchProfile = async () => {
         try {
           const response = await api.get('auth/update/');
-          const data = response.data;
-          setDisplayName(data.display_name || '');
-          setBio(data.bio || '');
-          setCurrentData(data);
+          setDisplayName(response.data.display_name || '');
+          setBio(response.data.bio || '');
+          setCurrentData(response.data);
         } catch (error) {
-          console.error('Error fetching profile:', error);
-          Alert.alert('Error', 'Could not load profile data.');
+          console.error('Fetch Error:', error);
         } finally {
           setFetching(false);
         }
@@ -57,150 +55,95 @@ export default function EditProfileScreen({ navigation, route }) {
     }
   }, [isOnboarding]);
 
-  // --- 4. IMAGE PICKER ---
+  // 🚀 OPTIMIZED IMAGE PICKER: Compression + Resizing
   const pickImage = type => {
     const options = {
       mediaType: 'photo',
-      quality: 0.7,
+      quality: 0.5, // Reduced from 0.7 to 0.5
+      maxWidth: 1000, // Caps width to 1000px
+      maxHeight: 1000, // Caps height to 1000px
     };
 
     launchImageLibrary(options, response => {
-      if (response.didCancel) return;
-      if (response.errorCode) {
-        Alert.alert('Error', response.errorMessage);
-        return;
-      }
-
+      if (response.didCancel || !response.assets) return;
       const source = response.assets[0];
+
+      console.log(
+        `📸 Selected ${type} size: ${Math.round(source.fileSize / 1024)} KB`,
+      );
+
       if (type === 'profile') setProfileImage(source);
       else setBannerImage(source);
     });
   };
 
-  // --- 5. SUBMIT LOGIC ---
+  // --- 4. SUBMIT LOGIC ---
   const handleProfileSubmit = async () => {
     if (!displayName.trim()) {
       return Alert.alert('Error', 'Display name is required');
     }
 
     setLoading(true);
-    const formData = new FormData();
-    formData.append('display_name', displayName);
-    formData.append('bio', bio);
-
-    if (profileImage) {
-      formData.append('profile_image', {
-        uri:
-          Platform.OS === 'android'
-            ? profileImage.uri
-            : profileImage.uri.replace('file://', ''),
-        type: profileImage.type || 'image/jpeg',
-        name: profileImage.fileName || 'profile.jpg',
-      });
-    }
-
-    if (bannerImage) {
-      formData.append('banner_image', {
-        uri:
-          Platform.OS === 'android'
-            ? bannerImage.uri
-            : bannerImage.uri.replace('file://', ''),
-        type: bannerImage.type || 'image/jpeg',
-        name: bannerImage.fileName || 'banner.jpg',
-      });
-    }
 
     try {
-      console.log('🚀 Starting profile submission...');
-      console.log('📋 Display name:', displayName);
-      console.log('📋 Bio:', bio);
-      console.log('📋 Is onboarding:', isOnboarding);
-      console.log('📋 Account type:', accountType);
+      const formData = new FormData();
+      formData.append('display_name', displayName);
+      formData.append('bio', bio);
 
-      if (accountType && isOnboarding) {
-        console.log(
-          '🔄 Sending second onboarding request with account_type...',
-        );
-        const onboardingResponse = await api.post('auth/onboarding/', {
-          account_type: accountType,
+      // Handle Profile Image
+      if (profileImage) {
+        formData.append('profile_image', {
+          uri:
+            Platform.OS === 'android'
+              ? profileImage.uri
+              : profileImage.uri.replace('file://', ''),
+          type: profileImage.type || 'image/jpeg',
+          name: profileImage.fileName || 'profile.jpg',
         });
-
-        console.log(
-          '✅ Onboarding update successful:',
-          onboardingResponse.data,
-        );
-
-        if (onboardingResponse.status === 200) {
-          await AsyncStorage.setItem(
-            'user_data',
-            JSON.stringify(onboardingResponse.data),
-          );
-        }
       }
 
-      console.log('📤 Sending profile update to auth/update/');
-      console.log(
-        '📋 Form data keys:',
-        Array.from(formData._parts).map(p => p[0]),
-      );
-
-      let response;
-      try {
-        response = await api.post('auth/update/', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 30000, // 30 second timeout for file uploads
+      // Handle Banner Image
+      if (bannerImage) {
+        formData.append('banner_image', {
+          uri:
+            Platform.OS === 'android'
+              ? bannerImage.uri
+              : bannerImage.uri.replace('file://', ''),
+          type: bannerImage.type || 'image/jpeg',
+          name: bannerImage.fileName || 'banner.jpg',
         });
-        console.log('✅ Profile update successful:', response.data);
-      } catch (uploadError) {
-        // If file upload fails, try without images
-        console.warn(
-          '⚠️ Upload with images failed, retrying without images...',
-        );
-        console.warn('Upload error details:', uploadError.message);
-
-        const simpleFormData = new FormData();
-        simpleFormData.append('display_name', displayName);
-        simpleFormData.append('bio', bio);
-
-        response = await api.post('auth/update/', simpleFormData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 10000,
-        });
-        console.log(
-          '✅ Profile update successful (without images):',
-          response.data,
-        );
-        Alert.alert(
-          'Info',
-          'Profile saved. Image upload will be optimized in the next version.',
-        );
       }
+
+      console.log('📤 Sending profile update to auth/update/...');
+
+      const response = await api.post('auth/update/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 45000, // 45s is standard for optimized uploads
+      });
 
       if (response.status === 200 || response.status === 201) {
         if (isOnboarding) {
-          // Finish onboarding and swap navigator
-          await AsyncStorage.setItem('is_new_user', JSON.stringify(false));
+          await AsyncStorage.setItem('is_new_user', 'false');
           setIsNew(false);
         } else {
-          // Just go back to the profile screen
-          Alert.alert('Success', 'Profile updated successfully!');
+          Alert.alert('Success', 'Profile updated!');
           navigation.goBack();
         }
       }
     } catch (error) {
-      console.error('❌ Update Error:', error);
-      console.error(
-        'Error response:',
-        error.response?.data || 'No response data',
-      );
-      console.error('Error message:', error.message);
-      console.error('Error status:', error.response?.status);
-      console.error('Full error object:', JSON.stringify(error, null, 2));
+      console.error('❌ Submit Error:', error.message);
 
-      Alert.alert(
-        'Error',
-        'Failed to save profile. Check console for details.',
-      );
+      if (error.message === 'Network Error') {
+        Alert.alert(
+          'Upload Failed',
+          'The image is still failing to upload. Try saving without an image first, or check your local server logs.',
+        );
+      } else {
+        const msg =
+          error.response?.data?.non_field_errors?.[0] ||
+          'Check your connection.';
+        Alert.alert('Update Failed', msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -220,7 +163,6 @@ export default function EditProfileScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Actions */}
         <View style={styles.topNav}>
           {!isOnboarding && (
             <TouchableOpacity
@@ -231,7 +173,7 @@ export default function EditProfileScreen({ navigation, route }) {
             </TouchableOpacity>
           )}
           <Text style={styles.headerTitle}>
-            {isOnboarding ? 'Create Profile' : 'Edit Profile'}
+            {isOnboarding ? 'Finish Setup' : 'Edit Profile'}
           </Text>
           <TouchableOpacity onPress={handleProfileSubmit} disabled={loading}>
             {loading ? (
@@ -261,7 +203,6 @@ export default function EditProfileScreen({ navigation, route }) {
           />
           <View style={styles.bannerOverlay}>
             <MaterialCommunityIcons name="camera" size={24} color="#fff" />
-            <Text style={styles.overlayText}>Change Cover</Text>
           </View>
         </TouchableOpacity>
 
@@ -293,7 +234,6 @@ export default function EditProfileScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        {/* Inputs */}
         <View style={styles.form}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>DISPLAY NAME</Text>
@@ -310,7 +250,7 @@ export default function EditProfileScreen({ navigation, route }) {
             <Text style={styles.label}>BIO</Text>
             <TextInput
               style={[styles.input, styles.bioInput]}
-              placeholder="Tell the community about yourself..."
+              placeholder="Tell us about yourself..."
               placeholderTextColor="#475569"
               value={bio}
               onChangeText={setBio}
@@ -322,28 +262,7 @@ export default function EditProfileScreen({ navigation, route }) {
             <TouchableOpacity
               style={styles.skipBtn}
               onPress={async () => {
-                if (accountType && isOnboarding) {
-                  try {
-                    const onboardingResponse = await api.post(
-                      'auth/onboarding/',
-                      {
-                        account_type: accountType,
-                      },
-                    );
-                    if (onboardingResponse.status === 200) {
-                      await AsyncStorage.setItem(
-                        'user_data',
-                        JSON.stringify(onboardingResponse.data),
-                      );
-                    }
-                  } catch (err) {
-                    console.error('Onboarding save failed:', err);
-                  }
-                }
-                await AsyncStorage.setItem(
-                  'is_new_user',
-                  JSON.stringify(false),
-                );
+                await AsyncStorage.setItem('is_new_user', 'false');
                 setIsNew(false);
               }}
             >
@@ -368,35 +287,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    padding: 20,
   },
   headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   saveText: { color: '#1E90FF', fontSize: 16, fontWeight: 'bold' },
   iconBtn: { padding: 5 },
-
   bannerContainer: { width: '100%', height: 160, position: 'relative' },
   bannerImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   bannerOverlay: {
     position: 'absolute',
-    bottom: 15,
-    right: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
+    bottom: 10,
+    right: 10,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    padding: 8,
     borderRadius: 20,
   },
-  overlayText: {
-    color: '#fff',
-    fontSize: 12,
-    marginLeft: 6,
-    fontWeight: '600',
-  },
-
   avatarWrapper: { alignItems: 'center', marginTop: -50 },
-  avatarBtn: { position: 'relative' },
   avatarImage: {
     width: 100,
     height: 100,
@@ -411,17 +317,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E90FF',
     padding: 6,
     borderRadius: 15,
-    borderWidth: 2,
-    borderColor: '#0D1F2D',
   },
-
   form: { paddingHorizontal: 25, marginTop: 30 },
   inputGroup: { marginBottom: 25 },
   label: {
     color: '#1E90FF',
     fontSize: 11,
     fontWeight: '900',
-    letterSpacing: 1.2,
     marginBottom: 10,
   },
   input: {
@@ -430,10 +332,8 @@ const styles = StyleSheet.create({
     padding: 15,
     color: '#fff',
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
   },
   bioInput: { height: 100, textAlignVertical: 'top' },
   skipBtn: { marginTop: 10, alignSelf: 'center' },
-  skipText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
+  skipText: { color: '#64748B', fontWeight: '600' },
 });

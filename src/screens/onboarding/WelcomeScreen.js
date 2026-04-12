@@ -24,14 +24,12 @@ const accountOptions = [
 
 export default function WelcomeScreen({ navigation }) {
   const handleSelection = type => {
-    if (type === 'fan') {
-      navigation.navigate('SelectLeagues', { accountType: 'fan' });
-    } else {
-      navigation.navigate('CreateProfile', {
-        mode: 'onboarding',
-        accountType: type,
-      });
-    }
+    // 🚀 FIXED: Everyone now goes to SelectLeagues first.
+    // We pass the actual 'type' variable so ChooseLeagues knows who is onboarding.
+    navigation.navigate('SelectLeagues', {
+      accountType: type,
+      mode: 'onboarding',
+    });
   };
 
   return (
