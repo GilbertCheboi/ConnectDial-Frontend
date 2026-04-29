@@ -1,3 +1,7 @@
+/**
+ * src/screens/auth/RegisterScreen.js
+ */
+
 import React, { useState } from 'react';
 import {
   View,
@@ -15,53 +19,47 @@ import {
 import { registerUser } from '../../api/auth';
 
 export default function RegisterScreen({ navigation }) {
-  const [form, setForm] = useState({
-    username: '',
-    email: '',
-    password: '',
-  });
-
+  const [form,    setForm]    = useState({ username: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!form.username || !form.email || !form.password) {
+    if (!form.username.trim() || !form.email.trim() || !form.password) {
       Alert.alert('Required Fields', 'Please fill in all fields.');
+      return;
+    }
+    if (form.password.length < 8) {
+      Alert.alert('Weak Password', 'Password must be at least 8 characters.');
       return;
     }
 
     setLoading(true);
     try {
-      // THE FIX: Django wants 'password1' and 'password2'
-      const payload = {
-        username: form.username.trim(),
-        email: form.email.trim().toLowerCase(),
-        password1: form.password, // Change 'password' to 'password1'
-        password2: form.password, // Change 'password_confirm' to 'password2'
-      };
+      await registerUser({
+        username:  form.username.trim(),
+        email:     form.email.trim().toLowerCase(),
+        password1: form.password,
+        password2: form.password,
+      });
 
-      console.log('--- 📤 SENDING REGISTRATION ---', payload);
-      await registerUser(payload);
-
-      Alert.alert('Success', 'Account created!', [
+      Alert.alert('Account Created!', 'You can now log in.', [
         { text: 'Login', onPress: () => navigation.navigate('Login') },
       ]);
     } catch (error) {
-      console.log('--- ❌ SERVER REJECTED ---', error.response?.data);
-
-      const serverErrors = error.response?.data;
-      let errorMessage = 'Registration failed. Please check your details.';
+      const serverErrors = error?.response?.data;
+      let message = 'Registration failed. Please check your details.';
 
       if (serverErrors) {
-        // This picks up the first error message (like "This username is taken")
         const firstKey = Object.keys(serverErrors)[0];
-        errorMessage = `${firstKey}: ${serverErrors[firstKey][0]}`;
+        const firstVal = serverErrors[firstKey];
+        message = `${firstKey}: ${Array.isArray(firstVal) ? firstVal[0] : firstVal}`;
       }
 
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Error', message);
     } finally {
       setLoading(false);
     }
   };
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -81,7 +79,7 @@ export default function RegisterScreen({ navigation }) {
               placeholderTextColor="#666"
               autoCapitalize="none"
               autoCorrect={false}
-              onChangeText={v => setForm({ ...form, username: v })}
+              onChangeText={(v) => setForm({ ...form, username: v })}
               style={styles.input}
             />
 
@@ -92,7 +90,7 @@ export default function RegisterScreen({ navigation }) {
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
-              onChangeText={v => setForm({ ...form, email: v })}
+              onChangeText={(v) => setForm({ ...form, email: v })}
               style={styles.input}
             />
 
@@ -101,7 +99,7 @@ export default function RegisterScreen({ navigation }) {
               placeholder="Minimum 8 characters"
               placeholderTextColor="#666"
               secureTextEntry
-              onChangeText={v => setForm({ ...form, password: v })}
+              onChangeText={(v) => setForm({ ...form, password: v })}
               style={styles.input}
             />
           </View>
@@ -134,38 +132,13 @@ export default function RegisterScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#121212',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    padding: 24,
-    justifyContent: 'center',
-  },
-  headerContainer: {
-    marginBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#aaa',
-  },
-  formContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    color: '#ccc',
-    fontSize: 14,
-    marginBottom: 8,
-    marginLeft: 4,
-    fontWeight: '500',
-  },
+  container:       { flex: 1, backgroundColor: '#121212' },
+  scrollContainer: { flexGrow: 1, padding: 24, justifyContent: 'center' },
+  headerContainer: { marginBottom: 40 },
+  title:           { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+  subtitle:        { fontSize: 16, color: '#aaa' },
+  formContainer:   { marginBottom: 20 },
+  label:           { color: '#ccc', fontSize: 14, marginBottom: 8, marginLeft: 4, fontWeight: '500' },
   input: {
     backgroundColor: '#1e1e1e',
     color: '#fff',
@@ -182,29 +155,14 @@ const styles = StyleSheet.create({
     padding: 18,
     alignItems: 'center',
     marginTop: 10,
-    // iOS Shadow
+    elevation: 5,
     shadowColor: '#007AFF',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
-    // Android Elevation
-    elevation: 5,
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  linkContainer: {
-    marginTop: 30,
-    alignItems: 'center',
-  },
-  linkText: {
-    color: '#aaa',
-    fontSize: 14,
-  },
-  linkHighlight: {
-    color: '#007AFF',
-    fontWeight: 'bold',
-  },
+  buttonText:    { color: '#fff', fontSize: 18, fontWeight: '600' },
+  linkContainer: { marginTop: 30, alignItems: 'center' },
+  linkText:      { color: '#aaa', fontSize: 14 },
+  linkHighlight: { color: '#007AFF', fontWeight: 'bold' },
 });
