@@ -7,35 +7,38 @@ const API_BASE = 'http://192.168.139.30:8000/auth/social';   // or use your BASE
 
 export const googleLogin = async () => {
   try {
-    await GoogleSignin.hasPlayServices();
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    await GoogleSignin.signOut();
+
     const userInfo = await GoogleSignin.signIn();
-    
-    const idToken = userInfo.idToken;
-    console.log('Google ID Token:', idToken?.substring(0, 50) + '...');
 
-    // Better: Use id_token instead of access_token
-    const response = await axios.post(`${API_BASE}/google/`, {
-      id_token: idToken,           // ← Most common & recommended
-      // access_token: idToken,    // Try this only if id_token fails
-    });
-
-    console.log('✅ Full Backend Response:', JSON.stringify(response.data, null, 2));
-
-    const { access, refresh, user, is_new_user } = response.data;
-
-    if (!access) {
-      throw new Error("No access token in server response");
+    let idToken = null;
+    if (userInfo?.type === 'success') {
+      idToken = userInfo.data?.idToken;
+    } else {
+      throw new Error('Google sign-in was cancelled or failed');
     }
 
-    // Store tokens
-    await AsyncStorage.setItem('access', access);
-    if (refresh) await AsyncStorage.setItem('refresh', refresh);
+    if (!idToken) throw new Error('Google sign-in did not return an ID token.');
 
-    // Return the FULL object that your auth store expects
-    return response.data;        // ← THIS WAS THE MAIN BUG
+    const { data } = await axios.post(`${API_BASE}/google/`, { id_token: idToken });
 
+    console.log('✅ FULL BACKEND RESPONSE:', JSON.stringify(data));
+
+    // still persist to AsyncStorage
+    await AsyncStorage.setItem('user', JSON.stringify(data.user));
+    await AsyncStorage.setItem('access_token', data.access);
+    await AsyncStorage.setItem('refresh_token', data.refresh);
+
+    // ✅ FIX: return tokens so authStore can update its in-memory state
+    return {
+      user: data.user,
+      access: data.access,
+      refresh: data.refresh,
+      isNewUser: data.is_new_user ?? false,
+    };
   } catch (error) {
-    console.error('Google login error:', error.response?.data || error.message);
+    console.error('Google login error:', error);
     throw error;
   }
 };

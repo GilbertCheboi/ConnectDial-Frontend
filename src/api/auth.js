@@ -4,17 +4,17 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import client from './client'; // ✅ fixed path — same folder
+import client from './client';
 
 // ─── Configure Google Sign-In ────────────────────────────────────────────────
 export const configureGoogleSignin = () => {
   GoogleSignin.configure({
-    webClientId: '849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com', // ✅ correct
+    webClientId: '849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com',
     offlineAccess: true,
   });
 };
 
-// ─── Save JWT session to AsyncStorage ───────────────────────────────────────
+// ─── Save JWT session to AsyncStorage ────────────────────────────────────────
 export const saveSession = async ({ access, refresh, user }) => {
   await AsyncStorage.multiSet([
     ['access',  access],
@@ -24,7 +24,7 @@ export const saveSession = async ({ access, refresh, user }) => {
   return user;
 };
 
-// ─── Extract a readable error message ───────────────────────────────────────
+// ─── Extract a readable error message ────────────────────────────────────────
 export const getErrorMessage = (error) => {
   const data = error?.response?.data;
   if (!data) return error?.message || 'Something went wrong. Please try again.';
@@ -38,21 +38,46 @@ export const getErrorMessage = (error) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// EMAIL / PASSWORD LOGIN
+// EMAIL / PASSWORD LOGIN  (2-step: credentials → OTP → JWT)
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Step 1 — Send credentials.
+ * Returns { pendingToken, message } on success.
+ * The backend emails a 6-digit OTP to the user.
+ */
 export const loginUser = async (identifier, password) => {
-  const { data } = await client.post('auth/login/', {
-    username: identifier,
-    password,
+  const { data } = await client.post('auth/login/', { identifier, password });
+  return {
+    pendingToken: data.pending_token,
+    message:      data.message,
+  };
+};
+
+/**
+ * Step 2 — Verify OTP.
+ * Returns { access, refresh, user } on success.
+ */
+export const verifyLoginOTP = async (pendingToken, otp) => {
+  const { data } = await client.post('auth/login/verify/', {
+    pending_token: pendingToken,
+    otp,
   });
+  return {
+    access:  data.access,
+    refresh: data.refresh,
+    user:    data.user,
+  };
+};
 
-  if (data.two_fa_required) {
-    return { twoFARequired: true, pendingToken: data.pending_token };
-  }
-
-  const user = await saveSession(data);
-  return { twoFARequired: false, user };
+/**
+ * Resend login OTP.
+ */
+export const resendLoginOTP = async (pendingToken) => {
+  const { data } = await client.post('auth/login/resend/', {
+    pending_token: pendingToken,
+  });
+  return data.message;
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -60,73 +85,32 @@ export const loginUser = async (identifier, password) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 export const googleLogin = async () => {
-  try {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  await GoogleSignin.signOut(); // clear previous session
 
-    // Optional: clear previous session for a fresh login
-    await GoogleSignin.signOut();
+  const userInfo = await GoogleSignin.signIn();
 
-    const userInfo = await GoogleSignin.signIn();
-
-    // Modern response handling
-    let idToken = null;
-
-    if (userInfo?.type === 'success') {
-      idToken = userInfo.data?.idToken;
-    } else {
-      throw new Error('Google sign-in was cancelled or failed');
-    }
-
-    if (!idToken) {
-      throw new Error('Google sign-in did not return an ID token.');
-    }
-
-    const { data } = await client.post('auth/social/google/', { 
-      id_token: idToken 
-    });
-
-    console.log('✅ FULL BACKEND RESPONSE:', JSON.stringify(data));
-
-    const user = await saveSession(data);
-    return { 
-      user, 
-      isNewUser: data.is_new_user ?? false 
-    };
-  } catch (error) {
-    // Handle specific Google errors if needed
-    console.error('Google login error:', error);
-    throw error;
+  let idToken = null;
+  if (userInfo?.type === 'success') {
+    idToken = userInfo.data?.idToken;
+  } else {
+    throw new Error('Google sign-in was cancelled or failed.');
   }
-};
 
-// ════════════════════════════════════════════════════════════════════════════
-// TWO-FACTOR AUTH
-// ════════════════════════════════════════════════════════════════════════════
+  if (!idToken) {
+    throw new Error('Google sign-in did not return an ID token.');
+  }
 
-export const verifyTwoFA = async (pendingToken, otp) => {
-  const { data } = await client.post('auth/2fa/verify/', {
-    pending_token: pendingToken,
-    otp,
-  });
-  const user = await saveSession(data);
-  return { user };
-};
+  const { data } = await client.post('auth/social/google/', { id_token: idToken });
 
-export const resendTwoFACode = async (pendingToken) => {
-  const { data } = await client.post('auth/2fa/resend/', {
-    pending_token: pendingToken,
-  });
-  return data.message;
-};
+  await saveSession(data);
 
-export const setTwoFAEnabled = async (enable) => {
-  const { data } = await client.post('auth/2fa/toggle/', { enable });
-  return data.two_fa_enabled;
-};
-
-export const getTwoFAStatus = async () => {
-  const { data } = await client.get('auth/2fa/status/');
-  return data.two_fa_enabled;
+  return {
+    access:    data.access,
+    refresh:   data.refresh,
+    user:      data.user,
+    isNewUser: data.is_new_user ?? false,
+  };
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -138,17 +122,15 @@ export const requestPasswordReset = async (identifier) => {
 };
 
 export const verifyResetOTP = async (identifier, otp) => {
-  const { data } = await client.post('auth/forgot-password/verify/', {
-    identifier,
-    otp,
-  });
+  const { data } = await client.post('auth/forgot-password/verify/', { identifier, otp });
   return data.reset_token;
 };
 
 export const resetPassword = async (resetToken, newPassword) => {
   await client.post('auth/forgot-password/reset/', {
-    reset_token:  resetToken,
-    new_password: newPassword,
+    reset_token:      resetToken,
+    new_password:     newPassword,
+    confirm_password: newPassword,
   });
 };
 
@@ -157,12 +139,7 @@ export const resetPassword = async (resetToken, newPassword) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 export const registerUser = async ({ username, email, password1, password2 }) => {
-  const { data } = await client.post('auth/register/', {
-    username,
-    email,
-    password1,
-    password2,
-  });
+  const { data } = await client.post('auth/register/', { username, email, password1, password2 });
   return data;
 };
 
@@ -175,8 +152,8 @@ export const completeOnboarding = async (accountType, fanPreferences = []) => {
     account_type:    accountType,
     fan_preferences: fanPreferences,
   });
-  await AsyncStorage.setItem('user', JSON.stringify(data.user));
-  return data.user;
+  await AsyncStorage.setItem('user', JSON.stringify(data));
+  return data;
 };
 
 // ════════════════════════════════════════════════════════════════════════════

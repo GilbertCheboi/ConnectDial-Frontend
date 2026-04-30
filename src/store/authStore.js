@@ -51,17 +51,19 @@ export const AuthProvider = ({ children }) => {
     let userData = data?.user;
     let newUserFlag = data?.isNewUser ?? data?.is_new_user ?? false;
 
-    // Google case: tokens already saved in saveSession()
+    // ✅ Google case: tokens already saved in saveSession(), read them back
+    // Normal login and 2FA now pass access+refresh+user directly, so this
+    // fallback only triggers for the Google flow
     if (!access || !refresh) {
       access = await AsyncStorage.getItem('access');
       refresh = await AsyncStorage.getItem('refresh');
       const savedUser = await AsyncStorage.getItem('user');
-      if (savedUser) userData = JSON.parse(savedUser);
+      if (savedUser && !userData) userData = JSON.parse(savedUser);
     }
 
     if (!access || !refresh || !userData) {
-      console.error("❌ No token found. Full data:", data);
-      throw new Error("No access token received from server");
+      console.error("❌ Missing auth data. Received:", data);
+      throw new Error("Incomplete auth data received");
     }
 
     await AsyncStorage.multiSet([

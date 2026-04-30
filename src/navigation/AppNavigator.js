@@ -66,7 +66,7 @@ export default function AppNavigator() {
       try {
         console.log('📱 Syncing FCM Token to Backend:', fcmToken);
         await axios.patch(
-          'http://192.168.100.107:8000/auth/update/',
+          'http://10.116.190.213/auth/update/',
           { fcm_token: fcmToken },
           {
             headers: {

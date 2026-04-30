@@ -37,7 +37,8 @@ export default function TwoFAScreen({ route, navigation }) {
     setLoading(true);
     try {
       const result = await verifyTwoFA(pendingToken, otp);
-      await login({ twoFARequired: false, user: result.user });
+      // ✅ result now contains { access, refresh, user } directly
+      await login(result);
     } catch (err) {
       const msg = err?.response?.data?.error || 'Invalid or expired code.';
       Alert.alert('Verification Failed', msg);

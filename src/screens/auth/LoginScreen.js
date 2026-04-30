@@ -17,90 +17,96 @@ import {
 import { loginUser, googleLogin, configureGoogleSignin } from '../../api/auth';
 import { useAuth } from '../../store/authStore';
 
+// Handles all DRF error shapes:
+// { detail: '...' }              ← TokenObtainPair / AuthenticationFailed
+// { non_field_errors: ['...'] }  ← ValidationError
+// { error: '...' }               ← our custom views
+// { field: ['...'] }             ← field-level errors
+const parseError = (err) => {
+  const data = err?.response?.data;
+  if (!data) return err?.message || 'Something went wrong. Please try again.';
+  if (typeof data === 'string') return data;
+  return (
+    data.detail                    ||
+    data.error                     ||
+    data.non_field_errors?.[0]     ||
+    Object.values(data).flat()[0]  ||
+    'Something went wrong.'
+  );
+};
+
 export default function LoginScreen({ navigation }) {
-  const { login } = useAuth();
+  const { login }                   = useAuth();
   const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [password,   setPassword]   = useState('');
+  const [loading,    setLoading]    = useState(false);
 
-  useEffect(() => {
-    configureGoogleSignin();
-  }, []);
+  useEffect(() => { configureGoogleSignin(); }, []);
 
+  // ── Email / password ──────────────────────────────────────────────────────
   const handleLogin = async () => {
     if (!identifier.trim() || !password) {
-      Alert.alert('Required', 'Please enter your username/email and password.');
+      Alert.alert('Missing fields', 'Please enter your username/email and password.');
       return;
     }
-
     setLoading(true);
     try {
-      const result = await loginUser(identifier.trim(), password);
-
-      if (result.twoFARequired) {
-        navigation.navigate('TwoFA', { pendingToken: result.pendingToken });
-        return;
-      }
-
-      await login(result);
-      // No manual navigation needed — AppNavigator will handle it
+      const { pendingToken } = await loginUser(identifier.trim(), password);
+      navigation.navigate('LoginOTP', { pendingToken });
     } catch (err) {
-      const msg = err?.response?.data?.error
-        || err?.response?.data?.detail
-        || 'Invalid username or password.';
-      Alert.alert('Login Failed', msg);
+      Alert.alert('Login failed', parseError(err));
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Google ────────────────────────────────────────────────────────────────
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
       const result = await googleLogin();
-      console.log("🔑 Google Result keys:", Object.keys(result));
-
-      await login(result);
-      // AppNavigator will automatically redirect
+      await login(result); // authStore + AppNavigator handle redirect
     } catch (err) {
-      console.error("Google Login Error:", err);
-      Alert.alert('Google Login Failed', err?.message || 'Something went wrong');
+      Alert.alert('Google login failed', err?.message || 'Something went wrong.');
     } finally {
       setLoading(false);
     }
   };
 
+  // ── UI ────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.inner}
       >
-        <View style={styles.headerContainer}>
-          <Text style={styles.title}>Welcome</Text>
-          <Text style={styles.subtitle}>Log in to continue your journey</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.subtitle}>Sign in to continue</Text>
         </View>
 
-        <View style={styles.formContainer}>
-          <TextInput
-            placeholder="Username or Email"
-            placeholderTextColor="#666"
-            value={identifier}
-            onChangeText={setIdentifier}
-            style={styles.input}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-          />
-          <TextInput
-            placeholder="Password"
-            placeholderTextColor="#666"
-            value={password}
-            secureTextEntry
-            onChangeText={setPassword}
-            style={styles.input}
-          />
-        </View>
+        <TextInput
+          placeholder="Username or Email"
+          placeholderTextColor="#666"
+          value={identifier}
+          onChangeText={setIdentifier}
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          returnKeyType="next"
+        />
+
+        <TextInput
+          placeholder="Password"
+          placeholderTextColor="#666"
+          value={password}
+          secureTextEntry
+          onChangeText={setPassword}
+          style={styles.input}
+          returnKeyType="done"
+          onSubmitEditing={handleLogin}
+        />
 
         <TouchableOpacity
           onPress={() => navigation.navigate('ForgotPassword')}
@@ -110,34 +116,36 @@ export default function LoginScreen({ navigation }) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, loading && { opacity: 0.7 }]}
+          style={[styles.button, loading && styles.disabled]}
           onPress={handleLogin}
           disabled={loading}
         >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
+          {loading
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.buttonText}>Continue</Text>}
         </TouchableOpacity>
 
-        <View style={styles.dividerContainer}>
+        <View style={styles.divider}>
           <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>OR</Text>
+          <Text style={styles.dividerLabel}>OR</Text>
           <View style={styles.dividerLine} />
         </View>
 
         <TouchableOpacity
-          style={[styles.googleButton, loading && { opacity: 0.7 }]}
+          style={[styles.googleButton, loading && styles.disabled]}
           onPress={handleGoogleLogin}
           disabled={loading}
         >
-          <Text style={styles.googleButtonText}>Continue with Google</Text>
+          <Text style={styles.googleText}>Continue with Google</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => navigation.navigate('Register')}
-          style={styles.linkContainer}
+          style={styles.registerLink}
         >
-          <Text style={styles.linkText}>
+          <Text style={styles.registerText}>
             Don't have an account?{' '}
-            <Text style={styles.linkHighlight}>Register</Text>
+            <Text style={styles.registerHighlight}>Register</Text>
           </Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
@@ -146,44 +154,42 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
-  inner: { flex: 1, padding: 24, justifyContent: 'center' },
-  headerContainer: { marginBottom: 40 },
-  title: { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
-  subtitle: { fontSize: 16, color: '#aaa' },
-  formContainer: { marginBottom: 8 },
+  container:         { flex: 1, backgroundColor: '#121212' },
+  inner:             { flex: 1, padding: 24, justifyContent: 'center' },
+  header:            { marginBottom: 36 },
+  title:             { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+  subtitle:          { fontSize: 16, color: '#aaa' },
   input: {
     backgroundColor: '#1e1e1e',
-    color: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#333',
+    color:           '#fff',
+    borderRadius:    12,
+    padding:         16,
+    marginBottom:    14,
+    fontSize:        16,
+    borderWidth:     1,
+    borderColor:     '#333',
   },
-  forgotContainer: { alignItems: 'flex-end', marginBottom: 20 },
-  forgotText: { color: '#007AFF', fontSize: 14 },
+  forgotContainer:   { alignItems: 'flex-end', marginBottom: 20 },
+  forgotText:        { color: '#007AFF', fontSize: 14 },
   button: {
     backgroundColor: '#007AFF',
-    borderRadius: 12,
-    padding: 18,
-    alignItems: 'center',
-    marginTop: 4,
+    borderRadius:    12,
+    padding:         18,
+    alignItems:      'center',
   },
-  buttonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  dividerContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 30 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#333' },
-  dividerText: { color: '#666', marginHorizontal: 10, fontSize: 12, fontWeight: 'bold' },
+  disabled:          { opacity: 0.6 },
+  buttonText:        { color: '#fff', fontSize: 17, fontWeight: '600' },
+  divider:           { flexDirection: 'row', alignItems: 'center', marginVertical: 28 },
+  dividerLine:       { flex: 1, height: 1, backgroundColor: '#2a2a2a' },
+  dividerLabel:      { color: '#555', marginHorizontal: 12, fontSize: 12, fontWeight: '700' },
   googleButton: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius:    12,
+    padding:         16,
+    alignItems:      'center',
   },
-  googleButtonText: { color: '#000', fontSize: 16, fontWeight: '600' },
-  linkContainer: { marginTop: 30, alignItems: 'center' },
-  linkText: { color: '#aaa', fontSize: 14 },
-  linkHighlight: { color: '#007AFF', fontWeight: 'bold' },
+  googleText:        { color: '#111', fontSize: 16, fontWeight: '600' },
+  registerLink:      { marginTop: 28, alignItems: 'center' },
+  registerText:      { color: '#aaa', fontSize: 14 },
+  registerHighlight: { color: '#007AFF', fontWeight: 'bold' },
 });
