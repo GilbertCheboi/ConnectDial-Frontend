@@ -47,13 +47,22 @@ export const getErrorMessage = (error) => {
  * The backend emails a 6-digit OTP to the user.
  */
 export const loginUser = async (identifier, password) => {
-  const { data } = await client.post('auth/login/', { identifier, password });
-  return {
-    pendingToken: data.pending_token,
-    message:      data.message,
-  };
-};
+  try {
+    console.log(`📤 Attempting login with: ${identifier}`);
 
+    const res = await client.post('auth/login/', {
+      email: identifier.trim(),   // Backend expects 'email' key
+      password: password,
+    });
+
+    console.log("✅ Login successful");
+    return res.data;
+
+  } catch (error) {
+    console.error("❌ Login error:", error.response?.data);
+    throw error;
+  }
+};
 /**
  * Step 2 — Verify OTP.
  * Returns { access, refresh, user } on success.

@@ -1,7 +1,7 @@
 /**
  * src/screens/auth/LoginScreen.js
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -14,66 +14,77 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { loginUser, googleLogin, configureGoogleSignin } from '../../api/auth';
-import { useAuth } from '../../store/authStore';
 
-// Handles all DRF error shapes:
-// { detail: '...' }              ← TokenObtainPair / AuthenticationFailed
-// { non_field_errors: ['...'] }  ← ValidationError
-// { error: '...' }               ← our custom views
-// { field: ['...'] }             ← field-level errors
+import { loginUser, googleLogin, configureGoogleSignin } from '../../api/auth';
+import { AuthContext } from '../../store/authStore';
+
+// Handles all DRF error shapes
 const parseError = (err) => {
   const data = err?.response?.data;
   if (!data) return err?.message || 'Something went wrong. Please try again.';
+
   if (typeof data === 'string') return data;
+
   return (
-    data.detail                    ||
-    data.error                     ||
-    data.non_field_errors?.[0]     ||
-    Object.values(data).flat()[0]  ||
-    'Something went wrong.'
+    data.detail ||
+    data.error ||
+    data.non_field_errors?.[0] ||
+    Object.values(data).flat()[0] ||
+    'Invalid credentials. Please try again.'
   );
 };
 
 export default function LoginScreen({ navigation }) {
-  const { login }                   = useAuth();
-  const [identifier, setIdentifier] = useState('');
-  const [password,   setPassword]   = useState('');
-  const [loading,    setLoading]    = useState(false);
+  const { login } = useContext(AuthContext);
 
-  useEffect(() => { configureGoogleSignin(); }, []);
+  const [identifier, setIdentifier] = useState(''); // Supports both username and email
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // ── Email / password ──────────────────────────────────────────────────────
+  useEffect(() => {
+    configureGoogleSignin();
+  }, []);
+
+  // ── Email / Username + Password Login ─────────────────────────────────
   const handleLogin = async () => {
     if (!identifier.trim() || !password) {
-      Alert.alert('Missing fields', 'Please enter your username/email and password.');
+      Alert.alert('Error', 'Please enter both username/email and password');
       return;
     }
+
     setLoading(true);
+
     try {
-      const { pendingToken } = await loginUser(identifier.trim(), password);
-      navigation.navigate('LoginOTP', { pendingToken });
+      const data = await loginUser(identifier.trim(), password);
+
+      if (data) {
+        await login(data);        // authStore will handle token + user + onboarding
+      } else {
+        Alert.alert('Login Failed', 'No data received from server.');
+      }
     } catch (err) {
-      Alert.alert('Login failed', parseError(err));
+      console.error('Login Error:', err);
+      const errorMessage = parseError(err);
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Google ────────────────────────────────────────────────────────────────
+  // ── Google Login ─────────────────────────────────────────────────────
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
       const result = await googleLogin();
-      await login(result); // authStore + AppNavigator handle redirect
+      await login(result);
     } catch (err) {
-      Alert.alert('Google login failed', err?.message || 'Something went wrong.');
+      Alert.alert('Google Login Failed', parseError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  // ── UI ────────────────────────────────────────────────────────────────────
+  // ── UI ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -120,9 +131,11 @@ export default function LoginScreen({ navigation }) {
           onPress={handleLogin}
           disabled={loading}
         >
-          {loading
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.buttonText}>Continue</Text>}
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Continue</Text>
+          )}
         </TouchableOpacity>
 
         <View style={styles.divider}>
@@ -154,42 +167,42 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container:         { flex: 1, backgroundColor: '#121212' },
-  inner:             { flex: 1, padding: 24, justifyContent: 'center' },
-  header:            { marginBottom: 36 },
-  title:             { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
-  subtitle:          { fontSize: 16, color: '#aaa' },
+  container: { flex: 1, backgroundColor: '#121212' },
+  inner: { flex: 1, padding: 24, justifyContent: 'center' },
+  header: { marginBottom: 36 },
+  title: { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+  subtitle: { fontSize: 16, color: '#aaa' },
   input: {
     backgroundColor: '#1e1e1e',
-    color:           '#fff',
-    borderRadius:    12,
-    padding:         16,
-    marginBottom:    14,
-    fontSize:        16,
-    borderWidth:     1,
-    borderColor:     '#333',
+    color: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 14,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#333',
   },
-  forgotContainer:   { alignItems: 'flex-end', marginBottom: 20 },
-  forgotText:        { color: '#007AFF', fontSize: 14 },
+  forgotContainer: { alignItems: 'flex-end', marginBottom: 20 },
+  forgotText: { color: '#007AFF', fontSize: 14 },
   button: {
     backgroundColor: '#007AFF',
-    borderRadius:    12,
-    padding:         18,
-    alignItems:      'center',
+    borderRadius: 12,
+    padding: 18,
+    alignItems: 'center',
   },
-  disabled:          { opacity: 0.6 },
-  buttonText:        { color: '#fff', fontSize: 17, fontWeight: '600' },
-  divider:           { flexDirection: 'row', alignItems: 'center', marginVertical: 28 },
-  dividerLine:       { flex: 1, height: 1, backgroundColor: '#2a2a2a' },
-  dividerLabel:      { color: '#555', marginHorizontal: 12, fontSize: 12, fontWeight: '700' },
+  disabled: { opacity: 0.6 },
+  buttonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 28 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#2a2a2a' },
+  dividerLabel: { color: '#555', marginHorizontal: 12, fontSize: 12, fontWeight: '700' },
   googleButton: {
     backgroundColor: '#fff',
-    borderRadius:    12,
-    padding:         16,
-    alignItems:      'center',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
   },
-  googleText:        { color: '#111', fontSize: 16, fontWeight: '600' },
-  registerLink:      { marginTop: 28, alignItems: 'center' },
-  registerText:      { color: '#aaa', fontSize: 14 },
+  googleText: { color: '#111', fontSize: 16, fontWeight: '600' },
+  registerLink: { marginTop: 28, alignItems: 'center' },
+  registerText: { color: '#aaa', fontSize: 14 },
   registerHighlight: { color: '#007AFF', fontWeight: 'bold' },
 });
