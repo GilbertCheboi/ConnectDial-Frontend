@@ -87,6 +87,14 @@ export default function LoginScreen({ navigation }) {
             onChangeText={setPassword}
             style={styles.input}
           />
+
+          {/* Forgot Password Link */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ForgotPassword')}
+            style={styles.forgotContainer}
+          >
+            <Text style={styles.forgotText}>Forgot Password?</Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity
@@ -101,7 +109,6 @@ export default function LoginScreen({ navigation }) {
           )}
         </TouchableOpacity>
 
-        {/* --- FIXED DIVIDER SECTION --- */}
         <View style={styles.dividerContainer}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>OR</Text>
@@ -145,6 +152,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#333',
+  },
+  forgotContainer: {
+    alignSelf: 'flex-end',
+    marginTop: -8,
+    marginBottom: 4,
+  },
+  forgotText: {
+    color: '#007AFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
   button: {
     backgroundColor: '#007AFF',

@@ -1,27 +1,44 @@
-const API_BASE = 'http://10.85.243.94:8000/auth/social'; 
+// src/api/auth.js
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+const API_BASE = 'http://10.253.187.30:8000/auth/social';   // or use your BASE_URL
 
 export const googleLogin = async () => {
-    try {
-        await GoogleSignin.hasPlayServices();
-        const userInfo = await GoogleSignin.signIn();
-        console.log('GoogleSignin object:', GoogleSignin);
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    await GoogleSignin.signOut();
 
-        const idToken = userInfo.idToken;
+    const userInfo = await GoogleSignin.signIn();
 
-        console.log('Google ID Token:', idToken); // <--- add this
-
-        const response = await axios.post(`${API_BASE}/google/`, {
-            access_token: idToken
-        });
-
-        console.log('Response from backend:', response.data); // <--- add this
-
-        await AsyncStorage.setItem('access', response.data.access);
-        await AsyncStorage.setItem('refresh', response.data.refresh);
-
-        return response.data.user;
-    } catch (error) {
-        console.error('Google login error', error.response?.data || error.message);
-        throw error;
+    let idToken = null;
+    if (userInfo?.type === 'success') {
+      idToken = userInfo.data?.idToken;
+    } else {
+      throw new Error('Google sign-in was cancelled or failed');
     }
+
+    if (!idToken) throw new Error('Google sign-in did not return an ID token.');
+
+    const { data } = await axios.post(`${API_BASE}/social/google/`, { id_token: idToken });
+
+    console.log('✅ FULL BACKEND RESPONSE:', JSON.stringify(data));
+
+    // still persist to AsyncStorage
+    await AsyncStorage.setItem('user', JSON.stringify(data.user));
+    await AsyncStorage.setItem('access_token', data.access);
+    await AsyncStorage.setItem('refresh_token', data.refresh);
+
+    // ✅ FIX: return tokens so authStore can update its in-memory state
+    return {
+      user: data.user,
+      access: data.access,
+      refresh: data.refresh,
+      isNewUser: data.is_new_user ?? false,
+    };
+  } catch (error) {
+    console.error('Google login error:', error);
+    throw error;
+  }
 };

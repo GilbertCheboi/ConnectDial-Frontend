@@ -1,26 +1,44 @@
 {
   "project_info": {
-    "project_number": "552464323715",
-    "project_id": "connectdial-bb223",
-    "storage_bucket": "connectdial-bb223.firebasestorage.app"
+    "project_number": "849401797302",
+    "project_id": "connectdial-b2b8f",
+    "storage_bucket": "connectdial-b2b8f.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:552464323715:android:109a7979c7d8afac7877b6",
+        "mobilesdk_app_id": "1:849401797302:android:9b57536ac54953459d2417",
         "android_client_info": {
           "package_name": "com.connectdialmobile"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "849401797302-j9h56of7649bv1kvd4129qk46ga7pepg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.connectdialmobile",
+            "certificate_hash": "275f61caf6fe870115e85e20c6f63a4fef0997e3"
+          }
+        },
+        {
+          "client_id": "849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyDYpgJyMpplLTUw2gUUCDDsKmpiP-mHQ-A"
+          "current_key": "AIzaSyDdxFqK43I00mRisl1Xv1fupPlsC5buvHQ"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
