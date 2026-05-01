@@ -168,7 +168,7 @@ export default function CreateProfileScreen({ navigation }) {
         />
 
         <TouchableOpacity
-          style={[styles.submitBtn, loading && { backgroundColor: '#555' }]}
+          style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
           onPress={handleProfileSubmit}
           disabled={loading}
         >
@@ -248,6 +248,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
     elevation: 3,
+  },
+  submitBtnDisabled: {
+    backgroundColor: '#555',
   },
   btnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
 });

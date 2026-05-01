@@ -16,7 +16,7 @@ import { googleLogin } from '../../services/auth';
 import { AuthContext } from '../../store/authStore';
 import { configureGoogleSignin } from '../../services/googleSignIn';
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen() {
   const { login } = useContext(AuthContext);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -31,11 +31,13 @@ export default function LoginScreen({ navigation }) {
       Alert.alert('Error', 'Please enter both username and password');
       return;
     }
+
     setLoading(true);
     try {
       const data = await loginUser(username, password);
       if (data && data.key) {
         await login(data);
+        // No navigation here → AppNavigator will handle it automatically
       } else {
         Alert.alert('Login failed', 'Server did not return a valid token.');
       }
@@ -54,8 +56,10 @@ export default function LoginScreen({ navigation }) {
     try {
       const userData = await googleLogin();
       await login(userData);
+      // No navigation here → AppNavigator will handle it automatically
     } catch (err) {
       console.error('Google Login Error:', err);
+      Alert.alert('Google Login Failed', 'Something went wrong. Please try again.');
     }
   };
 
@@ -88,7 +92,6 @@ export default function LoginScreen({ navigation }) {
             style={styles.input}
           />
 
-          {/* Forgot Password Link */}
           <TouchableOpacity
             onPress={() => navigation.navigate('ForgotPassword')}
             style={styles.forgotContainer}

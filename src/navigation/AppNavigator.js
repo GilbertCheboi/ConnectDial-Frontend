@@ -20,10 +20,10 @@ import AuthNavigator from '../api/AuthNavigator';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 import MainStackNavigator from './MainStackNavigator';
 
-const BASE_URL = 'http://10.199.198.22:8000';   // ← Update if IP changes
+const BASE_URL = 'http://10.199.198.22:8000';
 
 export default function AppNavigator() {
-  const { user, loading, needsOnboarding, token } = useContext(AuthContext);
+  const { user, loading, isNew } = useContext(AuthContext);   // ← Fixed: using isNew
   const themeContext = useContext(ThemeContext) || {};
 
   const themeName = themeContext.themeName || 'dark';
@@ -44,7 +44,6 @@ export default function AppNavigator() {
   // Handle deep linking from notifications
   const handleNotificationNavigation = (data) => {
     if (!data?.type || !data?.id) return;
-
     if (navigationRef.isReady()) {
       if (['like', 'comment', 'repost'].includes(data.type)) {
         navigationRef.navigate('PostDetail', { postId: data.id });
@@ -56,35 +55,28 @@ export default function AppNavigator() {
 
   // FCM Token Sync
   const saveTokenToBackend = async (fcmToken) => {
-    if (!token) return;   // Use token from context
-
+    if (!user?.token) return;
     try {
       console.log('📱 Syncing FCM Token to Backend:', fcmToken);
-
       await axios.patch(
         `${BASE_URL}/auth/update/`,
         { fcm_token: fcmToken },
         {
           headers: {
-            Authorization: `Bearer ${token}`,     // ← Fixed: Use Bearer
+            Authorization: `Token ${user.token}`,   // ← Also fixed to Token
             'Content-Type': 'application/json',
           },
         }
       );
-
       console.log('✅ FCM Token successfully linked to profile');
     } catch (error) {
-      console.error(
-        '❌ FCM Sync Error:',
-        error?.response?.data || error.message
-      );
+      console.error('❌ FCM Sync Error:', error?.response?.data || error.message);
     }
   };
 
   useEffect(() => {
     const setupMessaging = async () => {
-      if (!token) return;
-
+      if (!user?.token) return;
       try {
         const authStatus = await messaging().requestPermission();
         const enabled =
@@ -133,7 +125,7 @@ export default function AppNavigator() {
       unsubscribeOnMessage();
       onTokenRefresh();
     };
-  }, [token]);   // Re-run when token changes
+  }, [user?.token, handleNotificationNavigation, saveTokenToBackend]);
 
   // Loading Screen
   if (loading || themeLoading) {
@@ -177,7 +169,7 @@ export default function AppNavigator() {
       <FollowProvider>
         <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           {user ? (
-            needsOnboarding ? (          // ← Updated from isNew
+            isNew ? (               // ← Now correctly using isNew
               <OnboardingNavigator />
             ) : (
               <MainStackNavigator />

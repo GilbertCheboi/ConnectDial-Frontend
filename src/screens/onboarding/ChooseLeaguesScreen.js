@@ -16,7 +16,7 @@ import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
 
 // 🚀 Replace with your HP 290 local IP or production domain
-const API_BASE_URL = 'http://192.168.100.40:8000/api';
+const API_BASE_URL = 'http://10.199.198.201:8000/api';
 
 export default function ChooseLeaguesScreen({ navigation, route }) {
   const { user } = useContext(AuthContext);
