@@ -6,7 +6,7 @@ export const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isNew, setIsNew] = useState(false);
+  const [isNew, setIsNew] = useState(false); // Default to false to avoid onboarding loops
 
   // RUN ONCE: When the app first opens
   useEffect(() => {
@@ -22,14 +22,20 @@ export const AuthProvider = ({ children }) => {
 
       if (token) {
         console.log('Token Found: YES');
+
+        // 1. Determine if user is new.
+        // If the notebook is empty (null), we assume they are NOT new to avoid loops.
         let needsOnboarding = false;
         if (savedIsNew !== null) {
           needsOnboarding = JSON.parse(savedIsNew);
         }
 
+        console.log('Stored is_new_user:', needsOnboarding);
+
+        // 2. Set the global state
         setIsNew(needsOnboarding);
         setUser({
-          token,                    // ← important
+          token,
           ...JSON.parse(savedUserData || '{}'),
         });
       } else {
@@ -38,12 +44,12 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       console.error('❌ Failed to load auth state from storage:', e);
     } finally {
+      // 3. Stop the loading spinner
       setLoading(false);
     }
   };
 
-  // ✅ FIXED & IMPROVED LOGIN FUNCTION
-  const login = async (data) => {
+  const login = async data => {
     console.log('--- 🔍 DEBUG: RAW LOGIN DATA FROM SERVER ---', data);
 
     const token = data?.key;
@@ -51,9 +57,11 @@ export const AuthProvider = ({ children }) => {
 
     if (!token) {
       console.error('❌ AuthStore: No token found. Check Django API response.');
-      throw new Error('No token received from server');
+      return;
     }
 
+    // ONBOARDING LOGIC:
+    // If Django says 'is_onboarded' is true, then 'needsOnboarding' is false.
     const isAlreadyOnboarded = userData?.is_onboarded === true;
     const needsOnboarding = !isAlreadyOnboarded;
 
@@ -62,28 +70,22 @@ export const AuthProvider = ({ children }) => {
     console.log('Resulting "needsOnboarding":', needsOnboarding);
 
     try {
-      // Save to storage
+      // Save everything to the phone's memory
       await AsyncStorage.setItem('access_token', token);
-      await AsyncStorage.setItem('is_new_user', JSON.stringify(needsOnboarding));
+      await AsyncStorage.setItem(
+        'is_new_user',
+        JSON.stringify(needsOnboarding),
+      );
       await AsyncStorage.setItem('user_data', JSON.stringify(userData || {}));
 
-      // Update state
+      // Update the app's brain immediately
       setIsNew(needsOnboarding);
       setUser({ token, ...(userData || {}) });
 
-      console.log('✅ Login Success. State + Storage updated.');
-      
-      return token; // ← return token so you can use it immediately if needed
+      console.log('✅ Login Success. State updated.');
     } catch (e) {
       console.error('❌ Login Persistence Error:', e);
-      throw e;
     }
-  };
-
-  // ✅ NEW: Helper to get token anywhere (recommended for API clients)
-  const getToken = async () => {
-    if (user?.token) return user.token;
-    return await AsyncStorage.getItem('access_token');
   };
 
   const logout = async () => {
@@ -94,7 +96,7 @@ export const AuthProvider = ({ children }) => {
         'user_data',
       ]);
       setUser(null);
-      setIsNew(true);
+      setIsNew(true); // Reset for the next person
       console.log('✅ User logged out.');
     } catch (e) {
       console.error('Logout error:', e);
@@ -109,8 +111,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         loading,
         isNew,
-        setIsNew,
-        getToken,           // ← NEW: Use this in your API client
+        setIsNew, // Screens can call this to skip onboarding
       }}
     >
       {children}
