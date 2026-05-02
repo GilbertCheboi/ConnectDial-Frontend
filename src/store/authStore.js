@@ -6,7 +6,7 @@ export const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isNew, setIsNew] = useState(false); // Default to false to avoid onboarding loops
+  const [isNew, setIsNew] = useState(false);
 
   // RUN ONCE: When the app first opens
   useEffect(() => {
@@ -16,15 +16,15 @@ export const AuthProvider = ({ children }) => {
   const loadStorage = async () => {
     try {
       console.log('--- 🛡️ BOOT CHECK: LOADING STORAGE ---');
-      const token = await AsyncStorage.getItem('access_token');
+
+      const token = await AsyncStorage.getItem('access');
+      const refresh = await AsyncStorage.getItem('refresh');
       const savedIsNew = await AsyncStorage.getItem('is_new_user');
       const savedUserData = await AsyncStorage.getItem('user_data');
 
       if (token) {
         console.log('Token Found: YES');
 
-        // 1. Determine if user is new.
-        // If the notebook is empty (null), we assume they are NOT new to avoid loops.
         let needsOnboarding = false;
         if (savedIsNew !== null) {
           needsOnboarding = JSON.parse(savedIsNew);
@@ -32,10 +32,10 @@ export const AuthProvider = ({ children }) => {
 
         console.log('Stored is_new_user:', needsOnboarding);
 
-        // 2. Set the global state
         setIsNew(needsOnboarding);
         setUser({
           token,
+          refresh,                    // Added refresh
           ...JSON.parse(savedUserData || '{}'),
         });
       } else {
@@ -44,15 +44,15 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       console.error('❌ Failed to load auth state from storage:', e);
     } finally {
-      // 3. Stop the loading spinner
       setLoading(false);
     }
   };
 
-  const login = async data => {
+  const login = async (data) => {
     console.log('--- 🔍 DEBUG: RAW LOGIN DATA FROM SERVER ---', data);
 
-    const token = data?.key;
+    const token = data?.key || data?.access;
+    const refreshToken = data?.refresh;
     const userData = data?.user;
 
     if (!token) {
@@ -60,8 +60,7 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
-    // ONBOARDING LOGIC:
-    // If Django says 'is_onboarded' is true, then 'needsOnboarding' is false.
+    // Onboarding Logic
     const isAlreadyOnboarded = userData?.is_onboarded === true;
     const needsOnboarding = !isAlreadyOnboarded;
 
@@ -70,17 +69,19 @@ export const AuthProvider = ({ children }) => {
     console.log('Resulting "needsOnboarding":', needsOnboarding);
 
     try {
-      // Save everything to the phone's memory
-      await AsyncStorage.setItem('access_token', token);
-      await AsyncStorage.setItem(
-        'is_new_user',
-        JSON.stringify(needsOnboarding),
-      );
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('access', token);
+      await AsyncStorage.setItem('refresh', refreshToken || '');   // ← Added as requested
+      await AsyncStorage.setItem('is_new_user', JSON.stringify(needsOnboarding));
       await AsyncStorage.setItem('user_data', JSON.stringify(userData || {}));
 
-      // Update the app's brain immediately
+      // Update state
       setIsNew(needsOnboarding);
-      setUser({ token, ...(userData || {}) });
+      setUser({ 
+        token, 
+        refresh: refreshToken,
+        ...(userData || {}) 
+      });
 
       console.log('✅ Login Success. State updated.');
     } catch (e) {
@@ -91,12 +92,13 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await AsyncStorage.multiRemove([
-        'access_token',
+        'access',
+        'refresh',           // ← Also clear refresh
         'is_new_user',
         'user_data',
       ]);
       setUser(null);
-      setIsNew(true); // Reset for the next person
+      setIsNew(true);
       console.log('✅ User logged out.');
     } catch (e) {
       console.error('Logout error:', e);
@@ -111,7 +113,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         loading,
         isNew,
-        setIsNew, // Screens can call this to skip onboarding
+        setIsNew,
       }}
     >
       {children}

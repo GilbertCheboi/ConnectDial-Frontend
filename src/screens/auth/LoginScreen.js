@@ -16,7 +16,7 @@ import { googleLogin } from '../../services/auth';
 import { AuthContext } from '../../store/authStore';
 import { configureGoogleSignin } from '../../services/googleSignIn';
 
-export default function LoginScreen() {
+export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');

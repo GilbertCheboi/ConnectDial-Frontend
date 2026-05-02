@@ -82,12 +82,12 @@ export default function CreateProfileScreen({ navigation }) {
     }
 
     try {
-      const token = authData?.token;
+      const access = authData?.access;
 
       const response = await api.post('auth/update/', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          Authorization: `Token ${token}`,
+          Authorization: `access ${access}`,
         },
       });
 

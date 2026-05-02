@@ -55,7 +55,7 @@ export default function AppNavigator() {
 
   // FCM Token Sync
   const saveTokenToBackend = async (fcmToken) => {
-    if (!user?.token) return;
+    if (!user?.access) return;
     try {
       console.log('📱 Syncing FCM Token to Backend:', fcmToken);
       await axios.patch(
@@ -63,7 +63,7 @@ export default function AppNavigator() {
         { fcm_token: fcmToken },
         {
           headers: {
-            Authorization: `Token ${user.token}`,   // ← Also fixed to Token
+            Authorization: `Token ${user.access}`,   // ← Also fixed to Token
             'Content-Type': 'application/json',
           },
         }
@@ -76,7 +76,7 @@ export default function AppNavigator() {
 
   useEffect(() => {
     const setupMessaging = async () => {
-      if (!user?.token) return;
+      if (!user?.access) return;
       try {
         const authStatus = await messaging().requestPermission();
         const enabled =
@@ -125,7 +125,7 @@ export default function AppNavigator() {
       unsubscribeOnMessage();
       onTokenRefresh();
     };
-  }, [user?.token, handleNotificationNavigation, saveTokenToBackend]);
+  }, [user?.access, handleNotificationNavigation, saveTokenToBackend]);
 
   // Loading Screen
   if (loading || themeLoading) {
