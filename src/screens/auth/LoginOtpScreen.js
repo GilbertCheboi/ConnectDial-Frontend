@@ -1,27 +1,21 @@
 /**
  * src/screens/auth/LoginOTPScreen.js
- *
  * Step 2 of login — user enters the 6-digit code emailed to them.
+ * Backend: POST /auth/otp/verify/  body: { email, otp, purpose: 'login' }
  */
 import React, { useState, useRef } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Alert,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  SafeAreaView, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Alert,
 } from 'react-native';
-import { verifyLoginOTP, resendLoginOTP, getErrorMessage } from '../../api/auth';
+import { verifyLoginOTP, resendLoginOTP } from '../../api/auth';
 import { useAuth } from '../../store/authStore';
 
 export default function LoginOTPScreen({ route, navigation }) {
-  const { pendingToken } = route.params;
-  const { login }        = useAuth();
+  // ⚠️  Screens navigating here must pass { email } not { pendingToken }
+  const { email } = route.params;
+  const { login } = useAuth();
 
   const [otp,       setOtp]       = useState('');
   const [loading,   setLoading]   = useState(false);
@@ -35,12 +29,14 @@ export default function LoginOTPScreen({ route, navigation }) {
     }
     setLoading(true);
     try {
-      const session = await verifyLoginOTP(pendingToken, otp.trim());
-      // session = { access, refresh, user }
-      await login(session);
-      // AppNavigator will handle redirect
+      // verifyLoginOTP(email, otp) → POST /auth/otp/verify/ { email, otp, purpose: 'login' }
+      // returns { key, user } from VerifyOTPView
+      const data = await verifyLoginOTP(email, otp.trim());
+      await login(data); // data.key is the DRF token
     } catch (err) {
-      Alert.alert('Verification Failed', getErrorMessage(err));
+      const detail = err?.response?.data?.detail || 'The code is incorrect or has expired.';
+      Alert.alert('Verification Failed', detail);
+      setOtp('');
     } finally {
       setLoading(false);
     }
@@ -49,11 +45,13 @@ export default function LoginOTPScreen({ route, navigation }) {
   const handleResend = async () => {
     setResending(true);
     try {
-      const message = await resendLoginOTP(pendingToken);
-      Alert.alert('Code Sent', message || 'A new verification code has been sent to your email.');
+      // resendLoginOTP(email) → POST /auth/otp/send/ { email, purpose: 'login' }
+      await resendLoginOTP(email);
+      Alert.alert('Code Sent', 'A new verification code has been sent to your email.');
       setOtp('');
     } catch (err) {
-      Alert.alert('Error', getErrorMessage(err));
+      const detail = err?.response?.data?.detail || 'Failed to resend code. Please try again.';
+      Alert.alert('Error', detail);
     } finally {
       setResending(false);
     }
@@ -72,7 +70,9 @@ export default function LoginOTPScreen({ route, navigation }) {
         <View style={styles.headerContainer}>
           <Text style={styles.title}>Check your email</Text>
           <Text style={styles.subtitle}>
-            We sent a 6-digit verification code to your email address. It expires in 5 minutes.
+            We sent a 6-digit verification code to{'\n'}
+            <Text style={styles.emailHighlight}>{email}</Text>
+            {'\n'}It expires in 10 minutes.
           </Text>
         </View>
 
@@ -95,8 +95,7 @@ export default function LoginOTPScreen({ route, navigation }) {
         >
           {loading
             ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.buttonText}>Verify & Sign In</Text>
-          }
+            : <Text style={styles.buttonText}>Verify & Sign In</Text>}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -106,8 +105,10 @@ export default function LoginOTPScreen({ route, navigation }) {
         >
           {resending
             ? <ActivityIndicator color="#007AFF" size="small" />
-            : <Text style={styles.resendText}>Didn't receive a code? <Text style={styles.resendLink}>Resend</Text></Text>
-          }
+            : <Text style={styles.resendText}>
+                Didn't receive a code?{' '}
+                <Text style={styles.resendLink}>Resend</Text>
+              </Text>}
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -121,7 +122,8 @@ const styles = StyleSheet.create({
   backText:        { color: '#007AFF', fontSize: 16 },
   headerContainer: { marginBottom: 40 },
   title:           { fontSize: 28, fontWeight: 'bold', color: '#fff', marginBottom: 12 },
-  subtitle:        { fontSize: 15, color: '#aaa', lineHeight: 22 },
+  subtitle:        { fontSize: 15, color: '#aaa', lineHeight: 24 },
+  emailHighlight:  { color: '#fff', fontWeight: '600' },
   otpInput: {
     backgroundColor: '#1e1e1e',
     color:           '#fff',
@@ -135,15 +137,10 @@ const styles = StyleSheet.create({
     borderColor:     '#333',
     marginBottom:    24,
   },
-  button: {
-    backgroundColor: '#007AFF',
-    borderRadius:    12,
-    padding:         18,
-    alignItems:      'center',
-  },
-  buttonDisabled:   { opacity: 0.5 },
-  buttonText:       { color: '#fff', fontSize: 18, fontWeight: '600' },
-  resendContainer:  { marginTop: 24, alignItems: 'center' },
-  resendText:       { color: '#aaa', fontSize: 14 },
-  resendLink:       { color: '#007AFF', fontWeight: 'bold' },
+  button:          { backgroundColor: '#007AFF', borderRadius: 12, padding: 18, alignItems: 'center' },
+  buttonDisabled:  { opacity: 0.5 },
+  buttonText:      { color: '#fff', fontSize: 18, fontWeight: '600' },
+  resendContainer: { marginTop: 24, alignItems: 'center' },
+  resendText:      { color: '#aaa', fontSize: 14 },
+  resendLink:      { color: '#007AFF', fontWeight: 'bold' },
 });

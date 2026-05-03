@@ -1,105 +1,122 @@
-// src/store/authStore.js
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const AuthContext = createContext();
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
-
 export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(null);
-  const [refreshToken, setRefreshToken] = useState(null);
   const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isNew, setIsNew] = useState(false);
 
-  // Load session on app start
+  // RUN ONCE: When the app first opens
   useEffect(() => {
-    const loadAuth = async () => {
-      try {
-        const access = await AsyncStorage.getItem('access');
-        const refresh = await AsyncStorage.getItem('refresh');
-        const userStr = await AsyncStorage.getItem('user');
-
-        if (access && refresh && userStr) {
-          setToken(access);
-          setRefreshToken(refresh);
-          setUser(JSON.parse(userStr));
-          setIsAuthenticated(true);
-        }
-      } catch (e) {
-        console.error('Failed to load auth from storage', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadAuth();
+    loadStorage();
   }, []);
 
+  const loadStorage = async () => {
+    try {
+      console.log('--- 🛡️ BOOT CHECK: LOADING STORAGE ---');
+
+      const token = await AsyncStorage.getItem('access');
+      const refresh = await AsyncStorage.getItem('refresh');
+      const savedIsNew = await AsyncStorage.getItem('is_new_user');
+      const savedUserData = await AsyncStorage.getItem('user_data');
+
+      if (token) {
+        console.log('Token Found: YES');
+
+        let needsOnboarding = false;
+        if (savedIsNew !== null) {
+          needsOnboarding = JSON.parse(savedIsNew);
+        }
+
+        console.log('Stored is_new_user:', needsOnboarding);
+
+        setIsNew(needsOnboarding);
+        setUser({
+          token,
+          refresh,                    // Added refresh
+          ...JSON.parse(savedUserData || '{}'),
+        });
+      } else {
+        console.log('Token Found: NO (User is logged out)');
+      }
+    } catch (e) {
+      console.error('❌ Failed to load auth state from storage:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const login = async (data) => {
-    console.log("🔐 AuthStore login received:", data);
+    console.log('--- 🔍 DEBUG: RAW LOGIN DATA FROM SERVER ---', data);
 
-    let access = data?.access;
-    let refresh = data?.refresh;
-    let userData = data?.user;
-    let newUserFlag = data?.isNewUser ?? data?.is_new_user ?? false;
+    const token = data?.key || data?.access;
+    const refreshToken = data?.refresh;
+    const userData = data?.user;
 
-    // ✅ Google case: tokens already saved in saveSession(), read them back
-    // Normal login and 2FA now pass access+refresh+user directly, so this
-    // fallback only triggers for the Google flow
-    if (!access || !refresh) {
-      access = await AsyncStorage.getItem('access');
-      refresh = await AsyncStorage.getItem('refresh');
-      const savedUser = await AsyncStorage.getItem('user');
-      if (savedUser && !userData) userData = JSON.parse(savedUser);
+    if (!token) {
+      console.error('❌ AuthStore: No token found. Check Django API response.');
+      return;
     }
 
-    if (!access || !refresh || !userData) {
-      console.error("❌ Missing auth data. Received:", data);
-      throw new Error("Incomplete auth data received");
+    // Onboarding Logic
+    const isAlreadyOnboarded = userData?.is_onboarded === true;
+    const needsOnboarding = !isAlreadyOnboarded;
+
+    console.log('--- 📊 DEBUG: ONBOARDING CALCULATION ---');
+    console.log('is_onboarded from server:', userData?.is_onboarded);
+    console.log('Resulting "needsOnboarding":', needsOnboarding);
+
+    try {
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('access', token);
+      await AsyncStorage.setItem('refresh', refreshToken || '');   // ← Added as requested
+      await AsyncStorage.setItem('is_new_user', JSON.stringify(needsOnboarding));
+      await AsyncStorage.setItem('user_data', JSON.stringify(userData || {}));
+
+      // Update state
+      setIsNew(needsOnboarding);
+      setUser({ 
+        token, 
+        refresh: refreshToken,
+        ...(userData || {}) 
+      });
+
+      console.log('✅ Login Success. State updated.');
+    } catch (e) {
+      console.error('❌ Login Persistence Error:', e);
     }
-
-    await AsyncStorage.multiSet([
-      ['access', access],
-      ['refresh', refresh],
-      ['user', JSON.stringify(userData)],
-    ]);
-
-    setToken(access);
-    setRefreshToken(refresh);
-    setUser(userData);
-    setIsAuthenticated(true);
-    setIsNewUser(newUserFlag);
-
-    console.log("✅ AuthStore: Login successful");
   };
 
   const logout = async () => {
-    await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
-    setToken(null);
-    setRefreshToken(null);
-    setUser(null);
-    setIsAuthenticated(false);
-    setIsNewUser(false);
+    try {
+      await AsyncStorage.multiRemove([
+        'access',
+        'refresh',           // ← Also clear refresh
+        'is_new_user',
+        'user_data',
+      ]);
+      setUser(null);
+      setIsNew(true);
+      console.log('✅ User logged out.');
+    } catch (e) {
+      console.error('Logout error:', e);
+    }
   };
 
-  const value = {
-    token,
-    refreshToken,
-    user,
-    isAuthenticated,
-    isNewUser,
-    loading,
-    login,
-    logout,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        logout,
+        loading,
+        isNew,
+        setIsNew,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };

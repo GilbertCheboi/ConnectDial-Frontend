@@ -22,15 +22,17 @@ import {
 import { requestPasswordReset, verifyResetOTP, resetPassword } from '../../api/auth';
 
 export default function ForgotPasswordScreen({ navigation }) {
-  const [step,       setStep]       = useState(1);
-  const [identifier, setIdentifier] = useState('');
-  const [otp,        setOtp]        = useState('');
-  const [resetToken, setResetToken] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [step,            setStep]            = useState(1);
+  const [identifier,      setIdentifier]      = useState('');
+  const [otp,             setOtp]             = useState('');
+  const [resetToken,      setResetToken]      = useState('');
+  const [newPassword,     setNewPassword]     = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading,    setLoading]    = useState(false);
+  const [loading,         setLoading]         = useState(false);
 
   // ── Step 1: Request OTP ────────────────────────────────────────────────
+  // FIX 1: Pass identifier directly — requestPasswordReset now sends { email }
+  // to match ForgotPasswordView which only reads request.data.get("email").
   const handleRequestOTP = async () => {
     if (!identifier.trim()) {
       Alert.alert('Required', 'Please enter your email or username.');
@@ -39,7 +41,7 @@ export default function ForgotPasswordScreen({ navigation }) {
     setLoading(true);
     try {
       await requestPasswordReset(identifier.trim());
-      // Always moves to step 2 — backend never reveals if account exists
+      // Always move to step 2 — backend never reveals if account exists
       setStep(2);
     } catch {
       // Even on network error show the same message to prevent enumeration
@@ -50,6 +52,9 @@ export default function ForgotPasswordScreen({ navigation }) {
   };
 
   // ── Step 2: Verify OTP ────────────────────────────────────────────────
+  // FIX 2 + 3: verifyResetOTP now sends purpose:'password_reset' so the
+  // backend queries OTPCode with the correct purpose and returns a reset_token.
+  // The returned token is stored and passed directly to resetPassword in step 3.
   const handleVerifyOTP = async () => {
     if (otp.length !== 6) {
       Alert.alert('Invalid Code', 'Please enter the 6-digit code.');
@@ -69,6 +74,9 @@ export default function ForgotPasswordScreen({ navigation }) {
   };
 
   // ── Step 3: Set New Password ──────────────────────────────────────────
+  // FIX 3: resetPassword now takes (resetToken, newPassword) and sends
+  // { reset_token, new_password } — matching the updated ResetPasswordView
+  // which no longer accepts email + otp, only the scoped JWT.
   const handleResetPassword = async () => {
     if (newPassword.length < 8) {
       Alert.alert('Weak Password', 'Password must be at least 8 characters.');
@@ -85,7 +93,7 @@ export default function ForgotPasswordScreen({ navigation }) {
         { text: 'Login', onPress: () => navigation.navigate('Login') },
       ]);
     } catch (err) {
-      const msg = err?.response?.data?.error || 'Failed to reset password. Please start again.';
+      const msg = err?.response?.data?.detail || 'Failed to reset password. Please start again.';
       Alert.alert('Error', msg);
     } finally {
       setLoading(false);
@@ -106,7 +114,10 @@ export default function ForgotPasswordScreen({ navigation }) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.inner}
       >
-        <TouchableOpacity onPress={() => step > 1 ? setStep(step - 1) : navigation.goBack()} style={styles.back}>
+        <TouchableOpacity
+          onPress={() => step > 1 ? setStep(step - 1) : navigation.goBack()}
+          style={styles.back}
+        >
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
 
@@ -140,7 +151,10 @@ export default function ForgotPasswordScreen({ navigation }) {
               onPress={handleRequestOTP}
               disabled={loading}
             >
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Send Code</Text>}
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.buttonText}>Send Code</Text>
+              }
             </TouchableOpacity>
           </>
         )}
@@ -164,7 +178,10 @@ export default function ForgotPasswordScreen({ navigation }) {
               onPress={handleVerifyOTP}
               disabled={loading || otp.length !== 6}
             >
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Verify Code</Text>}
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.buttonText}>Verify Code</Text>
+              }
             </TouchableOpacity>
             <TouchableOpacity onPress={handleRequestOTP} style={styles.resendContainer}>
               <Text style={styles.resendText}>Resend code</Text>
@@ -196,7 +213,10 @@ export default function ForgotPasswordScreen({ navigation }) {
               onPress={handleResetPassword}
               disabled={loading}
             >
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Reset Password</Text>}
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.buttonText}>Reset Password</Text>
+              }
             </TouchableOpacity>
           </>
         )}

@@ -15,7 +15,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
 
-const API_BASE_URL = 'http://192.168.100.107:8000';
+const API_BASE_URL = 'http://10.199.198.201.40:8000';
 
 export default function ChooseTeamsScreen({ route, navigation }) {
   const { user } = useContext(AuthContext);

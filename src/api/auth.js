@@ -1,12 +1,64 @@
 /**
  * src/api/auth.js
+ * Clean, Fixed & Complete Auth API
  */
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import api from './client';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import client from './client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ─── Configure Google Sign-In ────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// LOGIN WITH OTP
+// ════════════════════════════════════════════════════════════════════════════
+export const sendLoginOTP = async (username, password) => {
+  const { data } = await api.post('auth/login/otp/', { username, password });
+  return data;
+};
+
+export const sendOTP = async (identifier, purpose = 'login') => {
+  const { data } = await api.post('auth/otp/send/', {
+    email: identifier,
+    purpose
+  });
+  return data;
+};
+
+export const verifyOTP = async (identifier, otp, purpose = 'login') => {
+  const { data } = await api.post('auth/otp/verify/', {
+    identifier,
+    otp,
+    purpose
+  });
+  return data;
+};
+
+// Aliases for LoginOTPScreen
+export const resendLoginOTP = (identifier) => sendOTP(identifier, 'login');
+export const verifyLoginOTP = (identifier, otp) => verifyOTP(identifier, otp, 'login');
+
+// ════════════════════════════════════════════════════════════════════════════
+// DIRECT LOGIN (Legacy)
+// ════════════════════════════════════════════════════════════════════════════
+export const loginUser = async (username, password) => {
+  const { data } = await api.post('auth/login/', { username, password });
+  return data;
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// REGISTER
+// ════════════════════════════════════════════════════════════════════════════
+export const registerUser = async ({ username, email, password1, password2 }) => {
+  const { data } = await api.post('auth/register/', {
+    username,
+    email,
+    password1,
+    password2
+  });
+  return data;
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// GOOGLE SIGN-IN
+// ════════════════════════════════════════════════════════════════════════════
 export const configureGoogleSignin = () => {
   GoogleSignin.configure({
     webClientId: '849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com',
@@ -14,209 +66,200 @@ export const configureGoogleSignin = () => {
   });
 };
 
-// ─── Save JWT session to AsyncStorage ────────────────────────────────────────
-export const saveSession = async ({ access, refresh, user }) => {
-  await AsyncStorage.multiSet([
-    ['access',  access],
-    ['refresh', refresh],
-    ['user',    JSON.stringify(user)],
-  ]);
-  return user;
-};
-
-// ─── Extract a readable error message ────────────────────────────────────────
-export const getErrorMessage = (error) => {
-  const data = error?.response?.data;
-  if (!data) return error?.message || 'Something went wrong. Please try again.';
-  return (
-    data.error ||
-    data.detail ||
-    data.non_field_errors?.[0] ||
-    Object.values(data).flat().join(' ') ||
-    'Something went wrong.'
-  );
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// EMAIL / PASSWORD LOGIN  (2-step: credentials → OTP → JWT)
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Step 1 — Send credentials.
- * Returns { pendingToken, message } on success.
- * The backend emails a 6-digit OTP to the user.
- */
-export const loginUser = async (identifier, password) => {
-  const { data } = await client.post('auth/login/', { identifier, password });
-  return {
-    pendingToken: data.pending_token,
-    message:      data.message,
-  };
-};
-
-/**
- * Step 2 — Verify OTP.
- * Returns { access, refresh, user } on success.
- */
-export const verifyLoginOTP = async (pendingToken, otp) => {
-  const { data } = await client.post('auth/login/verify/', {
-    pending_token: pendingToken,
-    otp,
-  });
-  return {
-    access:  data.access,
-    refresh: data.refresh,
-    user:    data.user,
-  };
-};
-
-/**
- * Resend login OTP.
- */
-export const resendLoginOTP = async (pendingToken) => {
-  const { data } = await client.post('auth/login/resend/', {
-    pending_token: pendingToken,
-  });
-  return data.message;
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// GOOGLE SIGN-IN
-// ════════════════════════════════════════════════════════════════════════════
-
 export const googleLogin = async () => {
-  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-  await GoogleSignin.signOut(); // clear previous session
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    await GoogleSignin.signOut();
 
-  const userInfo = await GoogleSignin.signIn();
+    const userInfo = await GoogleSignin.signIn();
+    const idToken = userInfo?.data?.idToken;
 
-  let idToken = null;
-  if (userInfo?.type === 'success') {
-    idToken = userInfo.data?.idToken;
-  } else {
-    throw new Error('Google sign-in was cancelled or failed.');
+    if (!idToken) throw new Error('Google sign-in did not return an ID token.');
+
+    const { data } = await api.post('auth/social/google/', { id_token: idToken });
+
+    console.log('✅ FULL GOOGLE BACKEND RESPONSE:', JSON.stringify(data, null, 2));
+
+    const token = data.access || data.key;
+    if (!token) throw new Error('No token received from server');
+
+    await AsyncStorage.multiSet([
+      ['access', token],
+      ['refresh', data.refresh || ''],
+      ['user', JSON.stringify(data.user || {})],
+    ]);
+
+    return {
+      key: token,
+      access: data.access,
+      refresh: data.refresh,
+      user: data.user,
+      isNewUser: data.is_new_user ?? false,
+    };
+  } catch (error) {
+    console.error('❌ Google Login Error:', error);
+    throw error;
   }
+};
 
-  if (!idToken) {
-    throw new Error('Google sign-in did not return an ID token.');
+// ════════════════════════════════════════════════════════════════════════════
+// TOKEN REFRESH (NEW)
+// ════════════════════════════════════════════════════════════════════════════
+export const refreshToken = async () => {
+  try {
+    const refresh = await AsyncStorage.getItem('refresh');
+
+    if (!refresh) {
+      console.warn('⚠️ No refresh token found in storage');
+      throw new Error('No refresh token available');
+    }
+
+    const { data } = await api.post('auth/token/refresh/', { refresh });
+
+    // Save new access token
+    await AsyncStorage.setItem('access', data.access);
+
+    // Some backends return a new refresh token (rotation)
+    if (data.refresh) {
+      await AsyncStorage.setItem('refresh', data.refresh);
+      console.log('✅ New refresh token saved');
+    }
+
+    console.log('✅ Token refreshed successfully');
+    return data.access;   // Return the new access token
+  } catch (error) {
+    console.error('❌ Token Refresh Failed:', error.response?.data || error.message);
+
+    // Clear invalid tokens
+    await AsyncStorage.multiRemove(['access', 'refresh']);
+
+    throw error;   // Let the interceptor handle logout
   }
-
-  const { data } = await client.post('auth/social/google/', { id_token: idToken });
-
-  await saveSession(data);
-
-  return {
-    access:    data.access,
-    refresh:   data.refresh,
-    user:      data.user,
-    isNewUser: data.is_new_user ?? false,
-  };
 };
 
 // ════════════════════════════════════════════════════════════════════════════
 // FORGOT PASSWORD
 // ════════════════════════════════════════════════════════════════════════════
-
-export const requestPasswordReset = async (identifier) => {
-  await client.post('auth/forgot-password/request/', { identifier });
+export const requestPasswordReset = async (email) => {
+  const { data } = await api.post('auth/password/forgot/', { email });
+  return data;
 };
 
 export const verifyResetOTP = async (identifier, otp) => {
-  const { data } = await client.post('auth/forgot-password/verify/', { identifier, otp });
+  const { data } = await api.post('auth/otp/verify/', {
+    identifier,
+    otp,
+    purpose: 'password_reset',
+  });
   return data.reset_token;
 };
 
 export const resetPassword = async (resetToken, newPassword) => {
-  await client.post('auth/forgot-password/reset/', {
-    reset_token:      resetToken,
-    new_password:     newPassword,
-    confirm_password: newPassword,
+  const { data } = await api.post('auth/password/reset/', {
+    reset_token: resetToken,
+    new_password: newPassword,
   });
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// REGISTER
-// ════════════════════════════════════════════════════════════════════════════
-
-export const registerUser = async ({ username, email, password1, password2 }) => {
-  const { data } = await client.post('auth/register/', { username, email, password1, password2 });
   return data;
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// ONBOARDING
+// CHANGE PASSWORD
 // ════════════════════════════════════════════════════════════════════════════
-
-export const completeOnboarding = async (accountType, fanPreferences = []) => {
-  const { data } = await client.post('auth/onboarding/', {
-    account_type:    accountType,
-    fan_preferences: fanPreferences,
+export const changePassword = async (oldPassword, newPassword) => {
+  const { data } = await api.post('auth/password/change/', {
+    old_password: oldPassword,
+    new_password: newPassword,
   });
-  await AsyncStorage.setItem('user', JSON.stringify(data));
   return data;
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// PROFILE
+// EMAIL VERIFICATION
 // ════════════════════════════════════════════════════════════════════════════
-
-export const getProfile = async (userId = null) => {
-  const params = userId ? { user_id: userId } : {};
-  const { data } = await client.get('auth/update/', { params });
+export const sendEmailVerification = async () => {
+  const { data } = await api.post('auth/email/send-verification/');
   return data;
 };
 
-export const updateProfile = async (fields) => {
-  const form = new FormData();
-  if (fields.displayName  !== undefined) form.append('display_name', fields.displayName);
-  if (fields.bio          !== undefined) form.append('bio',          fields.bio);
-  if (fields.fcmToken     !== undefined) form.append('fcm_token',    fields.fcmToken);
-  if (fields.profileImage !== undefined) {
-    form.append('profile_image', {
-      uri:  fields.profileImage.uri,
-      name: fields.profileImage.fileName || 'profile.jpg',
-      type: fields.profileImage.type     || 'image/jpeg',
-    });
-  }
-  if (fields.bannerImage !== undefined) {
-    form.append('banner_image', {
-      uri:  fields.bannerImage.uri,
-      name: fields.bannerImage.fileName || 'banner.jpg',
-      type: fields.bannerImage.type     || 'image/jpeg',
-    });
-  }
-  const { data } = await client.patch('auth/update/', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data.data;
-};
-
-export const searchUsers = async (query) => {
-  const { data } = await client.get('auth/search/', { params: { search: query } });
+export const verifyEmail = async (otp) => {
+  const { data } = await api.post('auth/email/verify/', { otp });
   return data;
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// FOLLOW / UNFOLLOW
+// 2FA — TOTP
 // ════════════════════════════════════════════════════════════════════════════
+export const setup2FA = async () => {
+  const { data } = await api.post('auth/2fa/setup/');
+  return data;
+};
 
-export const toggleFollow = async (userId) => {
-  const { data } = await client.post(`auth/users/${userId}/toggle-follow/`);
+export const verify2FASetup = async (totpCode) => {
+  const { data } = await api.post('auth/2fa/verify-setup/', { totp_code: totpCode });
+  return data;
+};
+
+export const validate2FA = async (totpCode) => {
+  const { data } = await api.post('auth/2fa/validate/', { totp_code: totpCode });
+  return data;
+};
+
+export const disable2FA = async (totpCode) => {
+  const { data } = await api.post('auth/2fa/disable/', { totp_code: totpCode });
+  return data;
+};
+
+export const get2FAStatus = async () => {
+  const { data } = await api.get('auth/2fa/status/');
+  return data;
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// TOKEN CHECK
+// ════════════════════════════════════════════════════════════════════════════
+export const checkToken = async () => {
+  const { data } = await api.get('auth/token/check/');
   return data;
 };
 
 // ════════════════════════════════════════════════════════════════════════════
 // LOGOUT
 // ════════════════════════════════════════════════════════════════════════════
-
 export const logoutUser = async () => {
   try {
-    const refresh = await AsyncStorage.getItem('refresh');
-    await client.post('auth/logout-custom/', { refresh });
-  } catch {
-    // Network error — still clear local session
-  } finally {
+    const { data } = await api.post('auth/logout-custom/');
     await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
-    try { await GoogleSignin.signOut(); } catch { /* not signed in via Google */ }
+    return data;
+  } catch (error) {
+    await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
+    throw error;
   }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROFILE & SOCIAL
+// ════════════════════════════════════════════════════════════════════════════
+export const getProfile = async (params = {}) => {
+  const { data } = await api.get('auth/update/', { params });
+  return data;
+};
+
+export const updateProfile = async (profileData, params = {}) => {
+  const { data } = await api.patch('auth/update/', profileData, { params });
+  return data;
+};
+
+export const searchProfiles = async (query) => {
+  const { data } = await api.get('auth/search/', { params: { search: query } });
+  return data;
+};
+
+export const toggleFollow = async (userId) => {
+  const { data } = await api.post(`auth/users/${userId}/toggle-follow/`);
+  return data;
+};
+
+export const completeOnboarding = async (onboardingData) => {
+  const { data } = await api.post('auth/onboarding/', onboardingData);
+  return data;
 };

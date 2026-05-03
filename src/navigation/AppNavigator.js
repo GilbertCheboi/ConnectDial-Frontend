@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import {
   NavigationContainer,
@@ -9,7 +9,7 @@ import {
 import messaging from '@react-native-firebase/messaging';
 import axios from 'axios';
 
-// Contexts & Providers
+// Contexts
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
 import { NotificationProvider } from '../store/NotificationContext';
@@ -20,9 +20,12 @@ import AuthNavigator from '../api/AuthNavigator';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 import MainStackNavigator from './MainStackNavigator';
 
+const BASE_URL = 'http://10.199.198.22:8000';
+
 export default function AppNavigator() {
-  const { user, loading, isNew } = useContext(AuthContext);
+  const { user, loading, isNew } = useContext(AuthContext);   // ← Fixed: using isNew
   const themeContext = useContext(ThemeContext) || {};
+
   const themeName = themeContext.themeName || 'dark';
   const theme = themeContext.theme || {
     colors: {
@@ -34,58 +37,47 @@ export default function AppNavigator() {
       notification: '#FF4B4B',
     },
   };
-  const themeLoading = themeContext.loading || false;
 
-  // 🚀 Create a reference to the navigation container to navigate from useEffect
+  const themeLoading = themeContext.loading || false;
   const navigationRef = useNavigationContainerRef();
 
-  // Helper to route the user based on notification data
-  const handleNotificationNavigation = data => {
-    if (!data || !data.type || !data.id) return;
-
-    console.log('🚀 Navigating based on data:', data);
-
-    // Ensure the navigator is ready before trying to navigate
+  // Handle deep linking from notifications
+  const handleNotificationNavigation = (data) => {
+    if (!data?.type || !data?.id) return;
     if (navigationRef.isReady()) {
-      if (
-        data.type === 'like' ||
-        data.type === 'comment' ||
-        data.type === 'repost'
-      ) {
-        // Navigate to PostDetail (Ensure this screen exists in MainStackNavigator)
+      if (['like', 'comment', 'repost'].includes(data.type)) {
         navigationRef.navigate('PostDetail', { postId: data.id });
       } else if (data.type === 'follow') {
-        // Navigate to Profile
         navigationRef.navigate('Profile', { userId: data.id });
       }
     }
   };
 
-  useEffect(() => {
-    const saveTokenToBackend = async fcmToken => {
-      try {
-        console.log('📱 Syncing FCM Token to Backend:', fcmToken);
-        await axios.patch(
-          'http://10.116.190.213/auth/update/',
-          { fcm_token: fcmToken },
-          {
-            headers: {
-              Authorization: `Token ${user.token}`,
-              'Content-Type': 'application/json',
-            },
+  // FCM Token Sync
+  const saveTokenToBackend = async (fcmToken) => {
+    if (!user?.access) return;
+    try {
+      console.log('📱 Syncing FCM Token to Backend:', fcmToken);
+      await axios.patch(
+        `${BASE_URL}/auth/update/`,
+        { fcm_token: fcmToken },
+        {
+          headers: {
+            Authorization: `Token ${user.access}`,   // ← Also fixed to Token
+            'Content-Type': 'application/json',
           },
-        );
-        console.log('✅ FCM Token Linked to Profile');
-      } catch (error) {
-        console.error(
-          '❌ FCM Sync Error:',
-          error?.response?.data || error.message,
-        );
-      }
-    };
+        }
+      );
+      console.log('✅ FCM Token successfully linked to profile');
+    } catch (error) {
+      console.error('❌ FCM Sync Error:', error?.response?.data || error.message);
+    }
+  };
 
+  useEffect(() => {
     const setupMessaging = async () => {
-      if (user && user.token) {
+      if (!user?.access) return;
+      try {
         const authStatus = await messaging().requestPermission();
         const enabled =
           authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
@@ -95,65 +87,47 @@ export default function AppNavigator() {
           const currentToken = await messaging().getToken();
           await saveTokenToBackend(currentToken);
         }
+      } catch (err) {
+        console.error('Messaging setup failed:', err);
       }
     };
 
     setupMessaging();
 
-    // 1. Handle Notification when app is in BACKGROUND (but still in memory)
+    // Notification Handlers
     const unsubscribeOnNotificationOpened = messaging().onNotificationOpenedApp(
-      remoteMessage => {
-        console.log(
-          'Notification opened app from background:',
-          remoteMessage.data,
-        );
-        handleNotificationNavigation(remoteMessage.data);
-      },
+      (remoteMessage) => handleNotificationNavigation(remoteMessage.data)
     );
 
-    // 2. Handle Notification when app is CLOSED (Quit State)
-    messaging()
-      .getInitialNotification()
-      .then(remoteMessage => {
-        if (remoteMessage) {
-          console.log(
-            'Notification opened app from quit state:',
-            remoteMessage.data,
-          );
-          // Small delay to ensure navigation stack is mounted
-          setTimeout(
-            () => handleNotificationNavigation(remoteMessage.data),
-            500,
-          );
-        }
-      });
+    messaging().getInitialNotification().then((remoteMessage) => {
+      if (remoteMessage) {
+        setTimeout(() => handleNotificationNavigation(remoteMessage.data), 800);
+      }
+    });
 
-    // 3. Foreground Message Handler
-    const unsubscribeOnMessage = messaging().onMessage(async remoteMessage => {
+    const unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
       Alert.alert(
         remoteMessage.notification?.title || 'New Notification',
         remoteMessage.notification?.body || 'You have a new message!',
         [
-          {
-            text: 'View',
-            onPress: () => handleNotificationNavigation(remoteMessage.data),
-          },
+          { text: 'View', onPress: () => handleNotificationNavigation(remoteMessage.data) },
           { text: 'Cancel', style: 'cancel' },
-        ],
+        ]
       );
     });
 
-    const onTokenRefresh = messaging().onTokenRefresh(token => {
-      if (user?.token) saveTokenToBackend(token);
+    const onTokenRefresh = messaging().onTokenRefresh((fcmToken) => {
+      saveTokenToBackend(fcmToken);
     });
 
     return () => {
-      onTokenRefresh();
-      unsubscribeOnMessage();
       unsubscribeOnNotificationOpened();
+      unsubscribeOnMessage();
+      onTokenRefresh();
     };
-  }, [user]);
+  }, [user?.access, handleNotificationNavigation, saveTokenToBackend]);
 
+  // Loading Screen
   if (loading || themeLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -162,6 +136,7 @@ export default function AppNavigator() {
     );
   }
 
+  // Theme Configuration
   const navigationTheme =
     themeName === 'dark'
       ? {
@@ -173,7 +148,7 @@ export default function AppNavigator() {
             card: theme.colors.card,
             text: theme.colors.text,
             border: theme.colors.border,
-            notification: theme.colors.notificationBadge,
+            notification: theme.colors.notification,
           },
         }
       : {
@@ -185,17 +160,16 @@ export default function AppNavigator() {
             card: theme.colors.card,
             text: theme.colors.text,
             border: theme.colors.border,
-            notification: theme.colors.notificationBadge,
+            notification: theme.colors.notification,
           },
         };
 
   return (
     <NotificationProvider>
       <FollowProvider>
-        {/* 🚀 Pass the navigationRef here */}
         <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           {user ? (
-            isNew ? (
+            isNew ? (               // ← Now correctly using isNew
               <OnboardingNavigator />
             ) : (
               <MainStackNavigator />
@@ -214,6 +188,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#0A1624',
   },
 });
