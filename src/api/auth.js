@@ -35,9 +35,6 @@ export const verifyOTP = async (identifier, otp, purpose = 'login') => {
 export const resendLoginOTP = (identifier) => sendOTP(identifier, 'login');
 export const verifyLoginOTP = (identifier, otp) => verifyOTP(identifier, otp, 'login');
 
-// ════════════════════════════════════════════════════════════════════════════
-// DIRECT LOGIN (Legacy)
-// ════════════════════════════════════════════════════════════════════════════
 export const loginUser = async (username, password) => {
   const { data } = await api.post('auth/login/', { username, password });
   return data;
@@ -80,60 +77,21 @@ export const googleLogin = async () => {
 
     console.log('✅ FULL GOOGLE BACKEND RESPONSE:', JSON.stringify(data, null, 2));
 
-    const token = data.access || data.key;
+    const token = data.token || data.key;
     if (!token) throw new Error('No token received from server');
 
-    await AsyncStorage.multiSet([
-      ['access', token],
-      ['refresh', data.refresh || ''],
-      ['user', JSON.stringify(data.user || {})],
-    ]);
+    // Persist token returned from backend
+    await AsyncStorage.setItem('authToken', token);
+    await AsyncStorage.setItem('user', JSON.stringify(data.user || {}));
 
     return {
-      key: token,
-      access: data.access,
-      refresh: data.refresh,
+      token: token,
       user: data.user,
       isNewUser: data.is_new_user ?? false,
     };
   } catch (error) {
     console.error('❌ Google Login Error:', error);
     throw error;
-  }
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// TOKEN REFRESH (NEW)
-// ════════════════════════════════════════════════════════════════════════════
-export const refreshToken = async () => {
-  try {
-    const refresh = await AsyncStorage.getItem('refresh');
-
-    if (!refresh) {
-      console.warn('⚠️ No refresh token found in storage');
-      throw new Error('No refresh token available');
-    }
-
-    const { data } = await api.post('auth/token/refresh/', { refresh });
-
-    // Save new access token
-    await AsyncStorage.setItem('access', data.access);
-
-    // Some backends return a new refresh token (rotation)
-    if (data.refresh) {
-      await AsyncStorage.setItem('refresh', data.refresh);
-      console.log('✅ New refresh token saved');
-    }
-
-    console.log('✅ Token refreshed successfully');
-    return data.access;   // Return the new access token
-  } catch (error) {
-    console.error('❌ Token Refresh Failed:', error.response?.data || error.message);
-
-    // Clear invalid tokens
-    await AsyncStorage.multiRemove(['access', 'refresh']);
-
-    throw error;   // Let the interceptor handle logout
   }
 };
 

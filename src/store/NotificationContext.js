@@ -4,7 +4,9 @@
  */
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import messaging from '@react-native-firebase/messaging';
+import { getApp } from '@react-native-firebase/app';
 import api from '../api/client';
+import { AuthContext } from '../store/authStore';
 
 const NotificationContext = createContext();
 
@@ -13,29 +15,37 @@ export const NotificationProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchUnreadCount = async () => {
+    const { user } = authCtx;
+    if (!user?.token) {
+      setLoading(false);
+      return; // don't call protected endpoint when unauthenticated
+    }
+
     try {
-      const response = await api.get('/api/notifications/unread-count/'); // ← Fixed leading slash
+      const response = await api.get('/api/notifications/unread-count/');
       const count = response.data.unread_count || response.data.count || 0;
       setUnreadCount(count);
     } catch (error) {
       console.log('Error fetching unread count:', error.response?.data || error.message);
-      // Don't crash the app if this fails
     } finally {
       setLoading(false);
     }
   };
 
+  const authCtx = useContext(AuthContext);
+
   useEffect(() => {
     fetchUnreadCount();
 
     // Listen for foreground notifications (instant update)
-    const unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
+    const msg = messaging(getApp());
+    const unsubscribeOnMessage = msg.onMessage(async (remoteMessage) => {
       console.log('New foreground notification received:', remoteMessage);
       fetchUnreadCount();        // Refresh count immediately
     });
 
     // Optional: Listen for token refresh
-    const unsubscribeTokenRefresh = messaging().onTokenRefresh(async (newToken) => {
+    const unsubscribeTokenRefresh = msg.onTokenRefresh(async (newToken) => {
       console.log('FCM Token refreshed');
       // You can re-send token to backend here if needed
     });

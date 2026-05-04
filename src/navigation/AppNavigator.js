@@ -7,7 +7,9 @@ import {
   DefaultTheme,
 } from '@react-navigation/native';
 import messaging from '@react-native-firebase/messaging';
+import { getApp } from '@react-native-firebase/app';
 import axios from 'axios';
+import api from '../api/client';
 
 // Contexts
 import { AuthContext } from '../store/authStore';
@@ -55,19 +57,10 @@ export default function AppNavigator() {
 
   // FCM Token Sync
   const saveTokenToBackend = async (fcmToken) => {
-    if (!user?.access) return;
+    if (!user?.token) return;
     try {
-      console.log('📱 Syncing FCM Token to Backend:', fcmToken);
-      await axios.patch(
-        `${BASE_URL}/auth/update/`,
-        { fcm_token: fcmToken },
-        {
-          headers: {
-            Authorization: `Token ${user.access}`,   // ← Also fixed to Token
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      console.log('📱 Syncing FCM Token to Backend via api client:', fcmToken);
+      await api.patch('auth/update/', { fcm_token: fcmToken });
       console.log('✅ FCM Token successfully linked to profile');
     } catch (error) {
       console.error('❌ FCM Sync Error:', error?.response?.data || error.message);
@@ -76,15 +69,16 @@ export default function AppNavigator() {
 
   useEffect(() => {
     const setupMessaging = async () => {
-      if (!user?.access) return;
+      if (!user?.token) return;
       try {
-        const authStatus = await messaging().requestPermission();
+        const msg = messaging(getApp());
+        const authStatus = await msg.requestPermission();
         const enabled =
-          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+          authStatus === msg.AuthorizationStatus.AUTHORIZED ||
+          authStatus === msg.AuthorizationStatus.PROVISIONAL;
 
         if (enabled) {
-          const currentToken = await messaging().getToken();
+          const currentToken = await msg.getToken();
           await saveTokenToBackend(currentToken);
         }
       } catch (err) {
@@ -95,17 +89,18 @@ export default function AppNavigator() {
     setupMessaging();
 
     // Notification Handlers
-    const unsubscribeOnNotificationOpened = messaging().onNotificationOpenedApp(
+    const msg = messaging(getApp());
+    const unsubscribeOnNotificationOpened = msg.onNotificationOpenedApp(
       (remoteMessage) => handleNotificationNavigation(remoteMessage.data)
     );
 
-    messaging().getInitialNotification().then((remoteMessage) => {
+    msg.getInitialNotification().then((remoteMessage) => {
       if (remoteMessage) {
         setTimeout(() => handleNotificationNavigation(remoteMessage.data), 800);
       }
     });
 
-    const unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
+    const unsubscribeOnMessage = msg.onMessage(async (remoteMessage) => {
       Alert.alert(
         remoteMessage.notification?.title || 'New Notification',
         remoteMessage.notification?.body || 'You have a new message!',
@@ -116,7 +111,7 @@ export default function AppNavigator() {
       );
     });
 
-    const onTokenRefresh = messaging().onTokenRefresh((fcmToken) => {
+    const onTokenRefresh = msg.onTokenRefresh((fcmToken) => {
       saveTokenToBackend(fcmToken);
     });
 

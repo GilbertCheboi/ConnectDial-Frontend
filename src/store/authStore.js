@@ -17,8 +17,7 @@ export const AuthProvider = ({ children }) => {
     try {
       console.log('--- 🛡️ BOOT CHECK: LOADING STORAGE ---');
 
-      const token = await AsyncStorage.getItem('access');
-      const refresh = await AsyncStorage.getItem('refresh');
+      const token = await AsyncStorage.getItem('authToken');
       const savedIsNew = await AsyncStorage.getItem('is_new_user');
       const savedUserData = await AsyncStorage.getItem('user_data');
 
@@ -35,7 +34,6 @@ export const AuthProvider = ({ children }) => {
         setIsNew(needsOnboarding);
         setUser({
           token,
-          refresh,                    // Added refresh
           ...JSON.parse(savedUserData || '{}'),
         });
       } else {
@@ -51,8 +49,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (data) => {
     console.log('--- 🔍 DEBUG: RAW LOGIN DATA FROM SERVER ---', data);
 
-    const token = data?.key || data?.access;
-    const refreshToken = data?.refresh;
+    const token = data?.token || data?.key || data?.access;
     const userData = data?.user;
 
     if (!token) {
@@ -70,8 +67,7 @@ export const AuthProvider = ({ children }) => {
 
     try {
       // Save to AsyncStorage
-      await AsyncStorage.setItem('access', token);
-      await AsyncStorage.setItem('refresh', refreshToken || '');   // ← Added as requested
+      await AsyncStorage.setItem('authToken', token);
       await AsyncStorage.setItem('is_new_user', JSON.stringify(needsOnboarding));
       await AsyncStorage.setItem('user_data', JSON.stringify(userData || {}));
 
@@ -79,7 +75,6 @@ export const AuthProvider = ({ children }) => {
       setIsNew(needsOnboarding);
       setUser({ 
         token, 
-        refresh: refreshToken,
         ...(userData || {}) 
       });
 
@@ -92,8 +87,7 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await AsyncStorage.multiRemove([
-        'access',
-        'refresh',           // ← Also clear refresh
+        'authToken',
         'is_new_user',
         'user_data',
       ]);
