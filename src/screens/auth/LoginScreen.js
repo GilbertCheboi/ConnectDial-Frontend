@@ -11,16 +11,14 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { loginUser } from '../../api/auth';
-import { googleLogin } from '../../services/auth';
+import { loginUser, googleLogin, configureGoogleSignin } from '../../api/auth'; // ← fixed: all from api/auth
 import { AuthContext } from '../../store/authStore';
-import { configureGoogleSignin } from '../../services/googleSignIn';
 
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
 
   useEffect(() => {
     configureGoogleSignin();
@@ -37,16 +35,13 @@ export default function LoginScreen({ navigation }) {
       const data = await loginUser(username, password);
       if (data && data.key) {
         await login(data);
-        // No navigation here → AppNavigator will handle it automatically
+        // No navigation here → AppNavigator handles it automatically
       } else {
         Alert.alert('Login failed', 'Server did not return a valid token.');
       }
     } catch (err) {
       console.log('Login Error:', err);
-      Alert.alert(
-        'Invalid credentials',
-        'Please check your username and password.',
-      );
+      Alert.alert('Invalid credentials', 'Please check your username and password.');
     } finally {
       setLoading(false);
     }
@@ -56,7 +51,7 @@ export default function LoginScreen({ navigation }) {
     try {
       const userData = await googleLogin();
       await login(userData);
-      // No navigation here → AppNavigator will handle it automatically
+      // No navigation here → AppNavigator handles it automatically
     } catch (err) {
       console.error('Google Login Error:', err);
       Alert.alert('Google Login Failed', 'Something went wrong. Please try again.');
@@ -140,61 +135,44 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
-  inner: { flex: 1, padding: 24, justifyContent: 'center' },
-  headerContainer: { marginBottom: 40 },
-  title: { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
-  subtitle: { fontSize: 16, color: '#aaa' },
-  formContainer: { marginBottom: 20 },
+  container:        { flex: 1, backgroundColor: '#121212' },
+  inner:            { flex: 1, padding: 24, justifyContent: 'center' },
+  headerContainer:  { marginBottom: 40 },
+  title:            { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+  subtitle:         { fontSize: 16, color: '#aaa' },
+  formContainer:    { marginBottom: 20 },
   input: {
     backgroundColor: '#1e1e1e',
-    color: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#333',
+    color:           '#fff',
+    borderRadius:    12,
+    padding:         16,
+    marginBottom:    16,
+    fontSize:        16,
+    borderWidth:     1,
+    borderColor:     '#333',
   },
-  forgotContainer: {
-    alignSelf: 'flex-end',
-    marginTop: -8,
-    marginBottom: 4,
-  },
-  forgotText: {
-    color: '#007AFF',
-    fontSize: 14,
-    fontWeight: '500',
-  },
+  forgotContainer:  { alignSelf: 'flex-end', marginTop: -8, marginBottom: 4 },
+  forgotText:       { color: '#007AFF', fontSize: 14, fontWeight: '500' },
   button: {
     backgroundColor: '#007AFF',
-    borderRadius: 12,
-    padding: 18,
-    alignItems: 'center',
-    marginTop: 10,
+    borderRadius:    12,
+    padding:         18,
+    alignItems:      'center',
+    marginTop:       10,
   },
-  buttonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 30,
-  },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#333' },
-  dividerText: {
-    color: '#666',
-    marginHorizontal: 10,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  buttonText:       { color: '#fff', fontSize: 18, fontWeight: '600' },
+  dividerContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 30 },
+  dividerLine:      { flex: 1, height: 1, backgroundColor: '#333' },
+  dividerText:      { color: '#666', marginHorizontal: 10, fontSize: 12, fontWeight: 'bold' },
   googleButton: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius:    12,
+    padding:         16,
+    alignItems:      'center',
+    justifyContent:  'center',
   },
   googleButtonText: { color: '#000', fontSize: 16, fontWeight: '600' },
-  linkContainer: { marginTop: 30, alignItems: 'center' },
-  linkText: { color: '#aaa', fontSize: 14 },
-  linkHighlight: { color: '#007AFF', fontWeight: 'bold' },
+  linkContainer:    { marginTop: 30, alignItems: 'center' },
+  linkText:         { color: '#aaa', fontSize: 14 },
+  linkHighlight:    { color: '#007AFF', fontWeight: 'bold' },
 });

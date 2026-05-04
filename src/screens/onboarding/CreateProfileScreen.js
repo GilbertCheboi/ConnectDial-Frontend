@@ -18,21 +18,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function CreateProfileScreen({ navigation }) {
   // --- 1. HOOKS ---
-  const { authData, setIsNew } = useContext(AuthContext);
+  const { setIsNew } = useContext(AuthContext); // ← removed authData, no longer needed
 
   // --- 2. STATE ---
-  const [displayName, setDisplayName] = useState('');
-  const [bio, setBio] = useState('');
+  const [displayName, setDisplayName]   = useState('');
+  const [bio, setBio]                   = useState('');
   const [profileImage, setProfileImage] = useState(null);
-  const [bannerImage, setBannerImage] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [bannerImage, setBannerImage]   = useState(null);
+  const [loading, setLoading]           = useState(false);
 
   // --- 3. IMAGE PICKING LOGIC ---
   const pickImage = type => {
-    const options = {
-      mediaType: 'photo',
-      quality: 0.8,
-    };
+    const options = { mediaType: 'photo', quality: 0.8 };
 
     launchImageLibrary(options, response => {
       if (response.didCancel) return;
@@ -40,7 +37,6 @@ export default function CreateProfileScreen({ navigation }) {
         Alert.alert('Error', response.errorMessage);
         return;
       }
-
       const source = response.assets[0];
       if (type === 'profile') setProfileImage(source);
       else setBannerImage(source);
@@ -61,10 +57,9 @@ export default function CreateProfileScreen({ navigation }) {
 
     if (profileImage) {
       formData.append('profile_image', {
-        uri:
-          Platform.OS === 'android'
-            ? profileImage.uri
-            : profileImage.uri.replace('file://', ''),
+        uri:  Platform.OS === 'android'
+                ? profileImage.uri
+                : profileImage.uri.replace('file://', ''),
         type: profileImage.type || 'image/jpeg',
         name: profileImage.fileName || 'profile.jpg',
       });
@@ -72,37 +67,29 @@ export default function CreateProfileScreen({ navigation }) {
 
     if (bannerImage) {
       formData.append('banner_image', {
-        uri:
-          Platform.OS === 'android'
-            ? bannerImage.uri
-            : bannerImage.uri.replace('file://', ''),
+        uri:  Platform.OS === 'android'
+                ? bannerImage.uri
+                : bannerImage.uri.replace('file://', ''),
         type: bannerImage.type || 'image/jpeg',
         name: bannerImage.fileName || 'banner.jpg',
       });
     }
 
     try {
-      const access = authData?.access;
-
+      // ✅ No manual Authorization header needed —
+      // api (axios client) attaches "Token <key>" automatically via interceptor
       const response = await api.post('auth/update/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          Authorization: `access ${access}`,
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       if (response.status === 200 || response.status === 201) {
-        // 1. Save to Disk FIRST
+        // 1. Save to disk FIRST
         await AsyncStorage.setItem('is_new_user', JSON.stringify(false));
 
-        // 2. Update Global State SECOND
+        // 2. Update global state SECOND
         setIsNew(false);
 
-        // 3. Navigate LAST
-        // navigation.reset({
-        //   index: 0,
-        //   routes: [{ name: 'MainTabs' }], // Match your AppNavigator name
-        // });
+        // 3. AppNavigator will redirect automatically — no manual navigation needed
       }
     } catch (error) {
       console.error('Update Error:', error.response?.data || error.message);
@@ -122,10 +109,7 @@ export default function CreateProfileScreen({ navigation }) {
       <Text style={styles.header}>Finalize Your Profile</Text>
 
       {/* Banner Section */}
-      <TouchableOpacity
-        onPress={() => pickImage('banner')}
-        style={styles.bannerBtn}
-      >
+      <TouchableOpacity onPress={() => pickImage('banner')} style={styles.bannerBtn}>
         {bannerImage ? (
           <Image source={{ uri: bannerImage.uri }} style={styles.banner} />
         ) : (
@@ -134,10 +118,7 @@ export default function CreateProfileScreen({ navigation }) {
       </TouchableOpacity>
 
       {/* Profile Photo Section */}
-      <TouchableOpacity
-        onPress={() => pickImage('profile')}
-        style={styles.profileBtn}
-      >
+      <TouchableOpacity onPress={() => pickImage('profile')} style={styles.profileBtn}>
         {profileImage ? (
           <Image source={{ uri: profileImage.uri }} style={styles.avatar} />
         ) : (
@@ -184,73 +165,19 @@ export default function CreateProfileScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingBottom: 40,
-    backgroundColor: '#0D1F2D',
-    minHeight: '100%',
-  },
-  header: {
-    fontSize: 24,
-    color: '#fff',
-    fontWeight: 'bold',
-    marginVertical: 30,
-    textAlign: 'center',
-  },
-  bannerBtn: {
-    width: '100%',
-    height: 160,
-    backgroundColor: '#1A2A3D',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  banner: { width: '100%', height: 160, resizeMode: 'cover' },
-  profileBtn: { alignSelf: 'center', marginTop: -50, marginBottom: 20 },
-  avatar: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    borderWidth: 4,
-    borderColor: '#0D1F2D',
-  },
-  avatarPlaceholder: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: '#1E90FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#0D1F2D',
-  },
-  imageText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  form: { paddingHorizontal: 20 },
-  label: {
-    color: '#1E90FF',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: '#1A2A3D',
-    color: '#fff',
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 20,
-    fontSize: 16,
-  },
-  bioInput: { height: 100, textAlignVertical: 'top' },
-  submitBtn: {
-    backgroundColor: '#1E90FF',
-    padding: 18,
-    borderRadius: 15,
-    alignItems: 'center',
-    marginTop: 10,
-    elevation: 3,
-  },
-  submitBtnDisabled: {
-    backgroundColor: '#555',
-  },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+  container:          { paddingBottom: 40, backgroundColor: '#0D1F2D', minHeight: '100%' },
+  header:             { fontSize: 24, color: '#fff', fontWeight: 'bold', marginVertical: 30, textAlign: 'center' },
+  bannerBtn:          { width: '100%', height: 160, backgroundColor: '#1A2A3D', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  banner:             { width: '100%', height: 160, resizeMode: 'cover' },
+  profileBtn:         { alignSelf: 'center', marginTop: -50, marginBottom: 20 },
+  avatar:             { width: 110, height: 110, borderRadius: 55, borderWidth: 4, borderColor: '#0D1F2D' },
+  avatarPlaceholder:  { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1E90FF', justifyContent: 'center', alignItems: 'center', borderWidth: 4, borderColor: '#0D1F2D' },
+  imageText:          { color: '#fff', fontSize: 13, fontWeight: '600' },
+  form:               { paddingHorizontal: 20 },
+  label:              { color: '#1E90FF', fontSize: 14, fontWeight: 'bold', marginBottom: 8, marginLeft: 4 },
+  input:              { backgroundColor: '#1A2A3D', color: '#fff', padding: 15, borderRadius: 12, marginBottom: 20, fontSize: 16 },
+  bioInput:           { height: 100, textAlignVertical: 'top' },
+  submitBtn:          { backgroundColor: '#1E90FF', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, elevation: 3 },
+  submitBtnDisabled:  { backgroundColor: '#555' },
+  btnText:            { color: '#fff', fontWeight: 'bold', fontSize: 18 },
 });
