@@ -22,7 +22,7 @@ import AuthNavigator from '../api/AuthNavigator';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 import MainStackNavigator from './MainStackNavigator';
 
-const BASE_URL = 'http://10.199.198.22:8000';
+const BASE_URL = 'http://192.168.100.107:8000';
 
 export default function AppNavigator() {
   const { user, loading, isNew } = useContext(AuthContext);   // ← Fixed: using isNew

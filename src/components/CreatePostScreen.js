@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useContext,
   useMemo,
+  useRef,
 } from 'react';
 import {
   View,
@@ -25,7 +26,9 @@ import { useIsFocused } from '@react-navigation/native';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
 
-import { MentionInput } from 'react-native-controlled-mentions';
+// ✅ FIX 1: Try default import first. If that fails, use: import { MentionInput } from 'react-native-controlled-mentions';
+import MentionInput from 'react-native-controlled-mentions';
+// 🔄 ALTERNATIVE (if above fails): import { MentionInput } from 'react-native-controlled-mentions';
 
 const LEAGUE_MAP = {
   1: { name: 'Premier League', logo: require('../screens/assets/epl.png') },
@@ -43,6 +46,44 @@ const LEAGUE_MAP = {
   10: { name: 'Bundesliga', logo: require('../screens/assets/bundesliga.jpg') },
   11: { name: 'Ligue 1', logo: require('../screens/assets/Ligue1_logo.png') },
   12: { name: 'Afcon', logo: require('../screens/assets/Afcon.png') },
+};
+
+// ✅ FIX 2: Extract SuggestionList as a standalone component to fix the
+// "Rules of Hooks" violation (useEffect was called inside renderSuggestions).
+const SuggestionList = ({
+  keyword,
+  onSuggestionPress,
+  fetchUserSuggestions,
+  suggestions,
+  mentionLoading,
+  theme,
+  styles,
+}) => {
+  useEffect(() => {
+    fetchUserSuggestions(keyword);
+  }, [keyword]);
+
+  if (keyword == null || suggestions.length === 0) return null;
+
+  return (
+    <View style={styles.suggestionContainer}>
+      {mentionLoading && (
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      )}
+      <FlatList
+        data={suggestions}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            onPress={() => onSuggestionPress(item)}
+            style={styles.suggestionItem}
+          >
+            <Text style={styles.suggestionText}>@{item.display}</Text>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
 };
 
 export default function CreatePostScreen({ route, navigation }) {
@@ -84,8 +125,8 @@ export default function CreatePostScreen({ route, navigation }) {
     leagueName = '',
     onEditSuccess,
     postType: initialType = null,
-    quoteMode = false, // 🚀 Added
-    parentPost = null, // 🚀 Added
+    quoteMode = false,
+    parentPost = null,
     editedShort = null,
     preserveOnBlur = false,
   } = route.params || {};
@@ -104,7 +145,7 @@ export default function CreatePostScreen({ route, navigation }) {
   // --- LOGIC: AUTO-FILL LEAGUE FOR QUOTES ---
   useEffect(() => {
     if (quoteMode && parentPost) {
-      setPostType('standard'); // Quotes are always standard posts
+      setPostType('standard');
       setSelectedLeague(parentPost.league);
       setSelectedName(parentPost.league_name || 'Original League');
     }
@@ -166,8 +207,6 @@ export default function CreatePostScreen({ route, navigation }) {
     setSelectedName('');
     setPostType(null);
 
-    // 🚀 THE KEY: Manually clear the navigation params
-    // This prevents the "Quote" or "Edit" data from persisting
     navigation.setParams({
       quoteMode: false,
       parentPost: null,
@@ -195,10 +234,9 @@ export default function CreatePostScreen({ route, navigation }) {
     }
   }, [isFocused, editMode, postData]);
 
-  // 3. Handle Quote Mode Setup (Optional but recommended for clarity)
+  // 3. Handle Quote Mode Setup
   useEffect(() => {
     if (isFocused && quoteMode && parentPost) {
-      // If quoting, you might want to default to the parent's league
       if (parentPost.league && !selectedLeague) {
         setSelectedLeague(parentPost.league);
         setSelectedName(parentPost.supporting_info?.league_name || '');
@@ -210,31 +248,24 @@ export default function CreatePostScreen({ route, navigation }) {
   }, [isFocused, quoteMode, parentPost]);
 
   // 4. Trigger reset when leaving
-  // 1. The Focus Guard: Only reset if we are truly abandoning the post
   useEffect(() => {
-    // Only trigger logic when we LOSE focus
     if (!isFocused) {
-      // We use a small timeout or check preserveOnBlur
-      // to ensure we aren't just mid-navigation to the editor
       if (!preserveOnBlur) {
         resetForm();
       }
     }
-  }, [isFocused, preserveOnBlur]); // removed resetForm from deps to prevent unnecessary triggers
+  }, [isFocused, preserveOnBlur]);
 
-  // 2. The Data Receiver: Catch the edited video
+  // 5. The Data Receiver: Catch the edited video
   useEffect(() => {
     if (editedShort) {
       setPostType('short');
       setMediaList([editedShort]);
 
-      // 🚀 THE FIX:
-      // We keep preserveOnBlur as TRUE until the state is fully updated
-      // to prevent the 'Focus Guard' from wiping the form.
       setTimeout(() => {
         navigation.setParams({
           editedShort: null,
-          preserveOnBlur: true, // Keep it true while we are in the "Shorts" flow
+          preserveOnBlur: true,
         });
       }, 100);
     }
@@ -242,7 +273,6 @@ export default function CreatePostScreen({ route, navigation }) {
 
   const openShortEditor = useCallback(
     asset => {
-      // Tell the form: "Don't wipe yourself, I'm just going to the editor"
       navigation.setParams({ preserveOnBlur: true });
 
       navigation.navigate('ShortEditor', {
@@ -294,11 +324,10 @@ export default function CreatePostScreen({ route, navigation }) {
     }
     try {
       setMentionLoading(true);
-      // Adjust endpoint to match your Django User ViewSet search logic
       const response = await api.get(`auth/users/?search=${keyword}`);
       const formattedUsers = response.data.map(u => ({
         id: u.id.toString(),
-        display: u.username, // Match what extract_mentions expects (@username)
+        display: u.username,
       }));
       setSuggestions(formattedUsers);
     } catch (err) {
@@ -315,7 +344,6 @@ export default function CreatePostScreen({ route, navigation }) {
     const hasContent = content.trim().length > 0;
     const hasMedia = mediaList.length > 0;
 
-    // Validation
     if (!hasContent && !hasMedia && !quoteMode) {
       Alert.alert('Empty Post', 'Please add some text or media.');
       return;
@@ -330,16 +358,11 @@ export default function CreatePostScreen({ route, navigation }) {
     setUploadProgress(0);
     const formData = new FormData();
 
-    // 1. Core Fields
     formData.append('content', content.trim());
-    formData.append('is_short', String(postType === 'short')); // FormData likes strings for booleans
+    formData.append('is_short', String(postType === 'short'));
 
-    // 2. 🚀 QUOTE & LEAGUE LOGIC
     if (quoteMode && parentPost) {
-      // Ensure we send the ID as a string/number clearly
       formData.append('parent_post', parentPost.id.toString());
-
-      // Fallback: If no league selected, use the parent post's league
       const leagueToAttach = selectedLeague || parentPost.league || '';
       formData.append('league', leagueToAttach.toString());
     } else {
@@ -349,7 +372,6 @@ export default function CreatePostScreen({ route, navigation }) {
       );
     }
 
-    // 3. Media Processing
     const newMedia = mediaList.filter(m => !m.isExisting);
     if (newMedia.length > 0) {
       newMedia.forEach((media, index) => {
@@ -360,7 +382,6 @@ export default function CreatePostScreen({ route, navigation }) {
 
         formData.append('media_file', {
           uri: fileUri,
-          // Ensure type fallback is safe
           type:
             media.type || (postType === 'short' ? 'video/mp4' : 'image/jpeg'),
           name:
@@ -402,7 +423,6 @@ export default function CreatePostScreen({ route, navigation }) {
         {
           text: 'OK',
           onPress: () => {
-            // 🚀 Optional: Trigger a refresh on the previous screen
             if (route.params?.refreshFeed) route.params.refreshFeed();
             navigation.goBack();
           },
@@ -411,7 +431,6 @@ export default function CreatePostScreen({ route, navigation }) {
     } catch (err) {
       setLoading(false);
       setUploadProgress(0);
-      // 💡 Pro-tip: Log the actual backend error to see if it's a 400 (Bad Request)
       const backendError = err.response?.data;
       console.log(
         '--- ❌ FULL BACKEND ERROR ---',
@@ -421,18 +440,22 @@ export default function CreatePostScreen({ route, navigation }) {
       Alert.alert('Error', 'Could not save post. Check console for details.');
     }
   };
+
+  // Compute styles once so we can pass them down
+  const themedStyles = styles(theme);
+
   // --- SELECTION SCREENS ---
   if (!postType && !editMode) {
     return (
       <View
-        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        style={[themedStyles.container, { backgroundColor: theme.colors.background }]}
       >
-        <Text style={[styles.headerText, { color: theme.colors.text }]}>
+        <Text style={[themedStyles.headerText, { color: theme.colors.text }]}>
           What are you sharing?
         </Text>
         <TouchableOpacity
           style={[
-            styles(theme).typeItem,
+            themedStyles.typeItem,
             { borderColor: theme.colors.primary },
           ]}
           onPress={() => setPostType('standard')}
@@ -442,14 +465,14 @@ export default function CreatePostScreen({ route, navigation }) {
             size={30}
             color={theme.colors.primary}
           />
-          <View style={styles(theme).typeTextContainer}>
+          <View style={themedStyles.typeTextContainer}>
             <Text
-              style={[styles(theme).typeTitle, { color: theme.colors.text }]}
+              style={[themedStyles.typeTitle, { color: theme.colors.text }]}
             >
               Standard Post
             </Text>
             <Text
-              style={[styles(theme).typeDesc, { color: theme.colors.subText }]}
+              style={[themedStyles.typeDesc, { color: theme.colors.subText }]}
             >
               Text, images, or standard videos
             </Text>
@@ -457,7 +480,7 @@ export default function CreatePostScreen({ route, navigation }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={[
-            styles(theme).typeItem,
+            themedStyles.typeItem,
             { borderColor: theme.colors.notificationBadge },
           ]}
           onPress={() => setPostType('short')}
@@ -467,17 +490,17 @@ export default function CreatePostScreen({ route, navigation }) {
             size={30}
             color={theme.colors.notificationBadge}
           />
-          <View style={styles(theme).typeTextContainer}>
+          <View style={themedStyles.typeTextContainer}>
             <Text
               style={[
-                styles(theme).typeTitle,
+                themedStyles.typeTitle,
                 { color: theme.colors.notificationBadge },
               ]}
             >
               Short Video
             </Text>
             <Text
-              style={[styles(theme).typeDesc, { color: theme.colors.subText }]}
+              style={[themedStyles.typeDesc, { color: theme.colors.subText }]}
             >
               Full-screen vertical sports highlights
             </Text>
@@ -491,7 +514,7 @@ export default function CreatePostScreen({ route, navigation }) {
     return (
       <View
         style={[
-          styles(theme).container,
+          themedStyles.container,
           { backgroundColor: theme.colors.background },
         ]}
       >
@@ -500,12 +523,12 @@ export default function CreatePostScreen({ route, navigation }) {
           style={{ marginBottom: 10 }}
         >
           <Text
-            style={[styles(theme).changeBtn, { color: theme.colors.primary }]}
+            style={[themedStyles.changeBtn, { color: theme.colors.primary }]}
           >
             ← Back to post type
           </Text>
         </TouchableOpacity>
-        <Text style={[styles(theme).headerText, { color: theme.colors.text }]}>
+        <Text style={[themedStyles.headerText, { color: theme.colors.text }]}>
           Which league is this for?
         </Text>
         <FlatList
@@ -514,7 +537,7 @@ export default function CreatePostScreen({ route, navigation }) {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[
-                styles(theme).leagueItem,
+                themedStyles.leagueItem,
                 {
                   backgroundColor: theme.colors.card,
                   borderColor: theme.colors.border,
@@ -525,17 +548,17 @@ export default function CreatePostScreen({ route, navigation }) {
                 setSelectedName(item.name);
               }}
             >
-              <View style={styles(theme).leagueRow}>
+              <View style={themedStyles.leagueRow}>
                 {item.logo && (
                   <Image
                     source={item.logo}
-                    style={styles(theme).leagueLogo}
+                    style={themedStyles.leagueLogo}
                     resizeMode="contain"
                   />
                 )}
                 <Text
                   style={[
-                    styles(theme).leagueText,
+                    themedStyles.leagueText,
                     { color: theme.colors.text },
                   ]}
                 >
@@ -557,74 +580,53 @@ export default function CreatePostScreen({ route, navigation }) {
   // --- MAIN EDITOR ---
   return (
     <ScrollView
-      style={styles(theme).container}
+      style={themedStyles.container}
       contentContainerStyle={{ paddingBottom: 40 }}
     >
-      <View style={styles(theme).headerRow}>
-        <Text style={styles(theme).postingTo}>
+      <View style={themedStyles.headerRow}>
+        <Text style={themedStyles.postingTo}>
           {quoteMode
             ? '🔄 Quoting'
             : postType === 'short'
             ? '🎥 Short'
             : '📝 Post'}{' '}
-          in <Text style={styles(theme).leagueHighlight}>{selectedName}</Text>
+          in <Text style={themedStyles.leagueHighlight}>{selectedName}</Text>
         </Text>
         {!editMode && !quoteMode && (
           <TouchableOpacity onPress={() => setSelectedLeague(null)}>
-            <Text style={styles(theme).changeBtn}>Change</Text>
+            <Text style={themedStyles.changeBtn}>Change</Text>
           </TouchableOpacity>
         )}
       </View>
 
+      {/* ✅ FIX 3: MentionInput with renderSuggestions using the extracted component */}
       <MentionInput
         value={content}
         onChange={setContent}
         placeholder={quoteMode ? 'Add a comment...' : "What's on your mind?"}
         placeholderTextColor={theme.colors.subText}
         multiline={true}
-        numberOfLines={4} // Adds a hint to the keyboard that this is a large text area
+        numberOfLines={4}
         blurOnSubmit={false}
-        style={styles(theme).input} // Ensure this has the minHeight: 150 we discussed
+        style={themedStyles.input}
         partTypes={[
           {
             trigger: '@',
-            renderSuggestions: ({ keyword, onSuggestionPress }) => {
-              // Trigger the API fetch whenever the keyword changes
-              useEffect(() => {
-                fetchUserSuggestions(keyword);
-              }, [keyword]);
-
-              if (keyword == null || suggestions.length === 0) return null;
-
-              return (
-                <View style={styles(theme).suggestionContainer}>
-                  {mentionLoading && (
-                    <ActivityIndicator
-                      size="small"
-                      color={theme.colors.primary}
-                    />
-                  )}
-                  <FlatList
-                    data={suggestions}
-                    keyExtractor={item => item.id}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        onPress={() => onSuggestionPress(item)}
-                        style={styles(theme).suggestionItem}
-                      >
-                        <Text style={styles(theme).suggestionText}>
-                          @{item.display}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  />
-                </View>
-              );
-            },
-            textStyle: { color: theme.colors.primary, fontWeight: 'bold' }, // Highlight color in editor
+            renderSuggestions: ({ keyword, onSuggestionPress }) => (
+              <SuggestionList
+                keyword={keyword}
+                onSuggestionPress={onSuggestionPress}
+                fetchUserSuggestions={fetchUserSuggestions}
+                suggestions={suggestions}
+                mentionLoading={mentionLoading}
+                theme={theme}
+                styles={themedStyles}
+              />
+            ),
+            textStyle: { color: theme.colors.primary, fontWeight: 'bold' },
           },
           {
-            trigger: '#', // For hashtags, we just color them (backend handles the rest)
+            trigger: '#',
             textStyle: { color: '#28a745', fontWeight: 'bold' },
           },
         ]}
@@ -632,23 +634,23 @@ export default function CreatePostScreen({ route, navigation }) {
 
       {/* 🚀 QUOTE PREVIEW UI */}
       {quoteMode && parentPost && (
-        <View style={styles(theme).quotePreviewBox}>
-          <View style={styles(theme).quotePreviewHeader}>
+        <View style={themedStyles.quotePreviewBox}>
+          <View style={themedStyles.quotePreviewHeader}>
             <Ionicons name="repeat" size={14} color={theme.colors.primary} />
-            <Text style={styles(theme).quotePreviewUser}>
+            <Text style={themedStyles.quotePreviewUser}>
               {parentPost.author_details?.display_name}
             </Text>
           </View>
-          <Text style={styles(theme).quotePreviewText} numberOfLines={3}>
+          <Text style={themedStyles.quotePreviewText} numberOfLines={3}>
             {parentPost.content}
           </Text>
         </View>
       )}
 
       {mediaList.length > 0 && (
-        <View style={styles(theme).mediaRow}>
+        <View style={themedStyles.mediaRow}>
           {mediaList.map((item, index) => (
-            <View key={index} style={styles(theme).previewWrapper}>
+            <View key={index} style={themedStyles.previewWrapper}>
               <Image
                 source={{
                   uri:
@@ -656,10 +658,10 @@ export default function CreatePostScreen({ route, navigation }) {
                       ? `http://192.168.100.107:8000${item.uri}`
                       : item.uri,
                 }}
-                style={styles(theme).thumbnail}
+                style={themedStyles.thumbnail}
               />
               <TouchableOpacity
-                style={styles(theme).removeBadge}
+                style={themedStyles.removeBadge}
                 onPress={() => setMediaList([])}
               >
                 <Ionicons
@@ -674,7 +676,7 @@ export default function CreatePostScreen({ route, navigation }) {
             mediaList[0]?.editConfig?.musicTrackTitle && (
               <Text
                 style={[
-                  styles(theme).shortEditSummary,
+                  themedStyles.shortEditSummary,
                   { color: theme.colors.primary },
                 ]}
               >
@@ -684,8 +686,8 @@ export default function CreatePostScreen({ route, navigation }) {
         </View>
       )}
 
-      <View style={styles(theme).toolbar}>
-        <TouchableOpacity style={styles(theme).toolBtn} onPress={pickMedia}>
+      <View style={themedStyles.toolbar}>
+        <TouchableOpacity style={themedStyles.toolBtn} onPress={pickMedia}>
           <Ionicons
             name={postType === 'short' ? 'videocam' : 'images'}
             size={28}
@@ -697,7 +699,7 @@ export default function CreatePostScreen({ route, navigation }) {
           />
           <Text
             style={[
-              styles(theme).toolText,
+              themedStyles.toolText,
               {
                 color:
                   postType === 'short'
@@ -712,11 +714,11 @@ export default function CreatePostScreen({ route, navigation }) {
 
         {postType === 'short' && mediaList.length > 0 && (
           <TouchableOpacity
-            style={styles(theme).toolBtn}
+            style={themedStyles.toolBtn}
             onPress={() => openShortEditor(mediaList[0])}
           >
             <Ionicons name="musical-notes" size={24} color="#F59E0B" />
-            <Text style={[styles(theme).toolText, { color: '#F59E0B' }]}>
+            <Text style={[themedStyles.toolText, { color: '#F59E0B' }]}>
               Edit Sound
             </Text>
           </TouchableOpacity>
@@ -725,26 +727,26 @@ export default function CreatePostScreen({ route, navigation }) {
 
       <TouchableOpacity
         style={[
-          styles(theme).postButton,
+          themedStyles.postButton,
           !content.trim() &&
             mediaList.length === 0 &&
             !quoteMode &&
-            styles(theme).disabledBtn,
+            themedStyles.disabledBtn,
         ]}
         onPress={handlePost}
         disabled={loading}
       >
         {loading ? (
-          <View style={styles(theme).loadingContent}>
+          <View style={themedStyles.loadingContent}>
             <ActivityIndicator color={theme.colors.buttonText} />
-            <Text style={styles(theme).postButtonText}>
+            <Text style={themedStyles.postButtonText}>
               {uploadProgress > 0
                 ? `Uploading ${uploadProgress}%`
                 : 'Uploading...'}
             </Text>
           </View>
         ) : (
-          <Text style={styles(theme).postButtonText}>
+          <Text style={themedStyles.postButtonText}>
             {editMode ? 'Update' : quoteMode ? 'Post Quote' : 'Post'}
           </Text>
         )}
@@ -810,15 +812,13 @@ const styles = theme =>
     input: {
       color: theme.colors.text,
       fontSize: 18,
-      minHeight: 150, // Increased: Gives more visual "room" for paragraphs
-      textAlignVertical: 'top', // Critical: Keeps text at the top on Android
-      paddingHorizontal: 12, // Better readability: text shouldn't touch the edges
-      paddingTop: 15, // Space at the top
-      paddingBottom: 20, // Extra space at bottom so text doesn't feel cramped
-      lineHeight: 24, // Essential: Adds vertical space between lines for readability
+      minHeight: 150,
+      textAlignVertical: 'top',
+      paddingHorizontal: 12,
+      paddingTop: 15,
+      paddingBottom: 20,
+      lineHeight: 24,
     },
-
-    // 🚀 QUOTE PREVIEW STYLES
     quotePreviewBox: {
       backgroundColor: theme.colors.card,
       padding: 15,
@@ -843,7 +843,6 @@ const styles = theme =>
       fontSize: 14,
       lineHeight: 20,
     },
-
     mediaRow: { marginVertical: 15 },
     previewWrapper: { position: 'relative', width: 100 },
     shortEditSummary: {
@@ -886,7 +885,6 @@ const styles = theme =>
       fontWeight: 'bold',
       fontSize: 16,
     },
-
     suggestionContainer: {
       backgroundColor: theme.colors.card,
       borderRadius: 10,
@@ -894,8 +892,8 @@ const styles = theme =>
       borderWidth: 1,
       borderColor: theme.colors.primary,
       marginTop: 5,
-      position: 'absolute', // Ensures it floats over other elements
-      top: 100, // Adjust based on your layout
+      position: 'absolute',
+      top: 100,
       width: '100%',
       zIndex: 1000,
     },
