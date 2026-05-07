@@ -1,41 +1,41 @@
 {
   "project_info": {
-    "project_number": "849401797302",
-    "project_id": "connectdial-b2b8f",
-    "storage_bucket": "connectdial-b2b8f.firebasestorage.app"
+    "project_number": "597689072930",
+    "project_id": "connect-c894b",
+    "storage_bucket": "connect-c894b.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:849401797302:android:9b57536ac54953459d2417",
+        "mobilesdk_app_id": "1:597689072930:android:98ba932b747f1bc1b2b97b",
         "android_client_info": {
-          "package_name": "com.connectdialmobile"
+          "package_name": "com.connectmobile.app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "849401797302-j9h56of7649bv1kvd4129qk46ga7pepg.apps.googleusercontent.com",
+          "client_id": "597689072930-67d9a06t10l30gi1rdtm5o0lr7sb2g06.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.connectdialmobile",
-            "certificate_hash": "275f61caf6fe870115e85e20c6f63a4fef0997e3"
+            "package_name": "com.connectmobile.app",
+            "certificate_hash": "f335eb259113d370842affefd9d1b48f4558f033"
           }
         },
         {
-          "client_id": "849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com",
+          "client_id": "597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDdxFqK43I00mRisl1Xv1fupPlsC5buvHQ"
+          "current_key": "AIzaSyC1WwlIILwETMXZbxZjZRimIQupmHzkEmU"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com",
+              "client_id": "597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

@@ -1,4 +1,4 @@
-package com.connectdialmobile
+package com.connectmobile.app
 
 import android.app.Application
 import com.facebook.react.PackageList

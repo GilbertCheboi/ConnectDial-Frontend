@@ -8,7 +8,6 @@ import {
 } from '@react-navigation/native';
 import messaging from '@react-native-firebase/messaging';
 import { getApp } from '@react-native-firebase/app';
-import axios from 'axios';
 import api from '../api/client';
 
 // Contexts
@@ -22,10 +21,8 @@ import AuthNavigator from '../api/AuthNavigator';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 import MainStackNavigator from './MainStackNavigator';
 
-const BASE_URL = 'http://192.168.100.107:8000';
-
 export default function AppNavigator() {
-  const { user, loading, isNew } = useContext(AuthContext);   // ← Fixed: using isNew
+  const { user, loading, isNew } = useContext(AuthContext); // ← Fixed: using isNew
   const themeContext = useContext(ThemeContext) || {};
 
   const themeName = themeContext.themeName || 'dark';
@@ -44,7 +41,7 @@ export default function AppNavigator() {
   const navigationRef = useNavigationContainerRef();
 
   // Handle deep linking from notifications
-  const handleNotificationNavigation = (data) => {
+  const handleNotificationNavigation = data => {
     if (!data?.type || !data?.id) return;
     if (navigationRef.isReady()) {
       if (['like', 'comment', 'repost'].includes(data.type)) {
@@ -56,14 +53,17 @@ export default function AppNavigator() {
   };
 
   // FCM Token Sync
-  const saveTokenToBackend = async (fcmToken) => {
+  const saveTokenToBackend = async fcmToken => {
     if (!user?.token) return;
     try {
       console.log('📱 Syncing FCM Token to Backend via api client:', fcmToken);
       await api.patch('auth/update/', { fcm_token: fcmToken });
       console.log('✅ FCM Token successfully linked to profile');
     } catch (error) {
-      console.error('❌ FCM Sync Error:', error?.response?.data || error.message);
+      console.error(
+        '❌ FCM Sync Error:',
+        error?.response?.data || error.message,
+      );
     }
   };
 
@@ -91,27 +91,30 @@ export default function AppNavigator() {
     // Notification Handlers
     const msg = messaging(getApp());
     const unsubscribeOnNotificationOpened = msg.onNotificationOpenedApp(
-      (remoteMessage) => handleNotificationNavigation(remoteMessage.data)
+      remoteMessage => handleNotificationNavigation(remoteMessage.data),
     );
 
-    msg.getInitialNotification().then((remoteMessage) => {
+    msg.getInitialNotification().then(remoteMessage => {
       if (remoteMessage) {
         setTimeout(() => handleNotificationNavigation(remoteMessage.data), 800);
       }
     });
 
-    const unsubscribeOnMessage = msg.onMessage(async (remoteMessage) => {
+    const unsubscribeOnMessage = msg.onMessage(async remoteMessage => {
       Alert.alert(
         remoteMessage.notification?.title || 'New Notification',
         remoteMessage.notification?.body || 'You have a new message!',
         [
-          { text: 'View', onPress: () => handleNotificationNavigation(remoteMessage.data) },
+          {
+            text: 'View',
+            onPress: () => handleNotificationNavigation(remoteMessage.data),
+          },
           { text: 'Cancel', style: 'cancel' },
-        ]
+        ],
       );
     });
 
-    const onTokenRefresh = msg.onTokenRefresh((fcmToken) => {
+    const onTokenRefresh = msg.onTokenRefresh(fcmToken => {
       saveTokenToBackend(fcmToken);
     });
 
@@ -164,7 +167,7 @@ export default function AppNavigator() {
       <FollowProvider>
         <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           {user ? (
-            isNew ? (               // ← Now correctly using isNew
+            isNew ? ( // ← Now correctly using isNew
               <OnboardingNavigator />
             ) : (
               <MainStackNavigator />

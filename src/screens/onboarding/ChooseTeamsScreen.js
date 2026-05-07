@@ -15,8 +15,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
 
-const API_BASE_URL = 'http://192.168.100.107:8000'; // 🚀 Update with your local IP or production domain
-
 export default function ChooseTeamsScreen({ route, navigation }) {
   const { user } = useContext(AuthContext);
   const {
@@ -42,11 +40,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
   }, []);
 
   useEffect(() => {
-    if (
-      isEditMode &&
-      user?.fan_preferences &&
-      Object.keys(teamsData).length > 0
-    ) {
+    if (isEditMode && user?.fan_preferences && Object.keys(teamsData).length > 0) {
       const currentSelected = {};
       user.fan_preferences.forEach(pref => {
         if (selectedLeagues.includes(pref.league)) {
@@ -61,7 +55,8 @@ export default function ChooseTeamsScreen({ route, navigation }) {
     try {
       const organized = {};
       const requests = selectedLeagues.map(id =>
-        api.get(`${API_BASE_URL}/api/teams/?league_id=${id}&limit=100`),
+        // ✅ No API_BASE_URL needed — client.js baseURL handles it
+        api.get(`api/teams/?league_id=${id}&limit=100`),
       );
       const responses = await Promise.all(requests);
       responses.forEach((res, i) => {
@@ -70,10 +65,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
       });
       setTeamsData(organized);
     } catch (e) {
-      Alert.alert(
-        'Connection Error',
-        'Could not reach the ConnectDial server.',
-      );
+      Alert.alert('Connection Error', 'Could not reach the ConnectDial server.');
     } finally {
       setLoading(false);
     }
@@ -95,17 +87,13 @@ export default function ChooseTeamsScreen({ route, navigation }) {
       append_mode: isAddingNew,
     };
 
-    console.log('🚀 Fan account - Saving preferences:', accountType);
-    console.log('📋 Payload being sent:', JSON.stringify(payload, null, 2));
-    console.log('📊 Selected teams:', selectedTeams);
-
     try {
       const response = await api.post('auth/onboarding/', payload);
       console.log('✅ Preferences saved successfully:', response.data);
 
       if (isEditMode) {
         Alert.alert('Success', 'Your preferences have been updated!');
-        navigation.goBack(); // Go back to the drawer or previous screen
+        navigation.goBack();
       } else if (isAddingNew) {
         navigation.navigate('MainApp', { screen: 'Profile' });
       } else {
@@ -115,18 +103,12 @@ export default function ChooseTeamsScreen({ route, navigation }) {
       console.error('❌ Save preferences error:');
       console.error('Error response data:', error.response?.data);
       console.error('Error message:', error.message);
-      console.error('Full error:', error);
-
-      Alert.alert(
-        'Error',
-        'Failed to save preferences. Check console for details.',
-      );
+      Alert.alert('Error', 'Failed to save preferences. Check console for details.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- Render Row Component ---
   const renderLeagueRow = ({ item: leagueId }) => {
     const teams = (teamsData[leagueId] || []).filter(t =>
       t.name.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -137,11 +119,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
     return (
       <View style={styles.leagueSection}>
         <View style={styles.leagueHeader}>
-          <MaterialCommunityIcons
-            name="trophy-variant-outline"
-            size={18}
-            color="#1E90FF"
-          />
+          <MaterialCommunityIcons name="trophy-variant-outline" size={18} color="#1E90FF" />
           <Text style={styles.leagueTitle}>
             {teams[0]?.league_name || `League ${leagueId}`}
           </Text>
@@ -153,7 +131,6 @@ export default function ChooseTeamsScreen({ route, navigation }) {
           keyExtractor={team => team.id.toString()}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalListPadding}
-          // 🚀 This ensures the horizontal list captures the swipe first
           nestedScrollEnabled={true}
           renderItem={({ item: team }) => {
             const isSelected = selectedTeams[leagueId] === team.id;
@@ -169,11 +146,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
                   <Image source={{ uri: team.logo }} style={styles.logo} />
                 ) : (
                   <View style={styles.placeholderLogo}>
-                    <MaterialCommunityIcons
-                      name="shield-outline"
-                      size={28}
-                      color="#475569"
-                    />
+                    <MaterialCommunityIcons name="shield-outline" size={28} color="#475569" />
                   </View>
                 )}
                 <Text
@@ -184,11 +157,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
                 </Text>
                 {isSelected && (
                   <View style={styles.checkBadge}>
-                    <MaterialCommunityIcons
-                      name="check-circle"
-                      size={16}
-                      color="#1E90FF"
-                    />
+                    <MaterialCommunityIcons name="check-circle" size={16} color="#1E90FF" />
                   </View>
                 )}
               </TouchableOpacity>
@@ -203,9 +172,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#1E90FF" />
-        <Text style={{ color: '#64748B', marginTop: 10 }}>
-          Loading your leagues...
-        </Text>
+        <Text style={{ color: '#64748B', marginTop: 10 }}>Loading your leagues...</Text>
       </View>
     );
   }
@@ -213,7 +180,6 @@ export default function ChooseTeamsScreen({ route, navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        {/* Main Vertical List */}
         <FlatList
           data={selectedLeagues}
           keyExtractor={item => item.toString()}
@@ -224,11 +190,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
                 {isEditMode ? 'Update Your Teams' : 'Pick Your Teams'}
               </Text>
               <View style={styles.searchBox}>
-                <MaterialCommunityIcons
-                  name="magnify"
-                  size={20}
-                  color="#64748B"
-                />
+                <MaterialCommunityIcons name="magnify" size={20} color="#64748B" />
                 <TextInput
                   style={styles.input}
                   placeholder="Search teams..."
@@ -243,7 +205,6 @@ export default function ChooseTeamsScreen({ route, navigation }) {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* Floating Footer */}
         <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.btn, isSubmitting && styles.btnDisabled]}
@@ -325,12 +286,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 10,
   },
-  teamName: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
+  teamName: { color: '#94A3B8', fontSize: 11, fontWeight: '700', textAlign: 'center' },
   selectedText: { color: '#fff' },
   checkBadge: { position: 'absolute', top: 10, right: 10 },
   footer: {
