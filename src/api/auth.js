@@ -2,7 +2,7 @@
  * src/api/auth.js
  */
 import api from './client';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const persistSession = async (key, user) => {
@@ -43,7 +43,7 @@ export const verifyLoginOTP = (identifier, otp) => verifyOTP(identifier, otp, 'l
 export const registerUser = async ({ username, email, password1, password2 }) => {
   const { data } = await api.post('auth/register/', { username, email, password1, password2 });
   if (data.token) {
-    await persistSession(data.token, data.user); // ✅ data.user not data
+    await persistSession(data.token, data.user);
   }
   return data;
 };
@@ -57,21 +57,79 @@ export const configureGoogleSignin = () => {
   });
 };
 
+/**
+ * Extracts the idToken from the GoogleSignin.signIn() response.
+ *
+ * The response shape changed across library versions:
+ *   - v6–v12 (old):  { idToken: '...' }           ← top-level
+ *   - v13+   (new):  { data: { idToken: '...' } }  ← nested under data
+ *
+ * This helper handles both shapes so the code works regardless of
+ * which version is installed.
+ */
+const extractIdToken = (userInfo) => {
+  // v13+ shape: { data: { idToken, user, ... } }
+  if (userInfo?.data?.idToken) return userInfo.data.idToken;
+
+  // v6–v12 shape: { idToken, user, ... }
+  if (userInfo?.idToken) return userInfo.idToken;
+
+  // Some v13 builds expose it at the top level as well
+  if (userInfo?.data?.serverAuthCode && !userInfo?.data?.idToken) {
+    // serverAuthCode present but no idToken → offlineAccess only, can't proceed
+    throw new Error(
+      'Google sign-in returned a serverAuthCode but no idToken. ' +
+      'Ensure your webClientId is a WEB client ID (not Android/iOS).'
+    );
+  }
+
+  return null;
+};
+
+export const configureGoogleSignin = () => {
+  GoogleSignin.configure({
+    webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com', // ← MUST be the WEB client ID
+    offlineAccess: true,   // good for getting id_token
+    // iosClientId: '...'  // optional but recommended for iOS
+  });
+};
+
 export const googleLogin = async () => {
   try {
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut();
-    const userInfo = await GoogleSignin.signIn();
-    const idToken = userInfo?.data?.idToken;
-    if (!idToken) throw new Error('Google sign-in did not return an ID token.');
+    await GoogleSignin.signOut(); // force account picker
 
-    const { data } = await api.post('auth/social/google/', { id_token: idToken });
-    if (!data.key) throw new Error('No token received from server.');
+    const userInfo = await GoogleSignin.signIn();
+    console.log('Google userInfo:', JSON.stringify(userInfo, null, 2));
+
+    const idToken = extractIdToken(userInfo);
+
+    if (!idToken) {
+      throw new Error('No id_token received from Google. Check webClientId is a WEB client ID.');
+    }
+
+    console.log('Sending id_token to backend...');
+
+    const { data } = await api.post('auth/social/google/', { 
+      id_token: idToken 
+    });
+
+    if (!data.key) {
+      throw new Error('Backend did not return auth token');
+    }
 
     await persistSession(data.key, data.user);
-    return { token: data.key, user: data.user, isNewUser: data.is_new_user ?? false };
+    return { 
+      token: data.key, 
+      user: data.user, 
+      isNewUser: data.is_new_user ?? false 
+    };
+
   } catch (error) {
-    console.error('❌ Google Login Error:', error);
+    console.error('Google Login Error Details:', error);
+    if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      throw error;
+    }
     throw error;
   }
 };
@@ -118,7 +176,7 @@ export const sendEmailVerification = async () => {
 
 export const verifyEmail = async (otp) => {
   const { data } = await api.post('auth/email/verify/', { otp });
-  if (data.key) await AsyncStorage.setItem('authToken', data.key); // ✅ added
+  if (data.key) await AsyncStorage.setItem('authToken', data.key);
   return data;
 };
 
@@ -131,7 +189,7 @@ export const setup2FA = async () => {
 
 export const verify2FASetup = async (totpCode) => {
   const { data } = await api.post('auth/2fa/verify-setup/', { totp_code: totpCode });
-  if (data.key) await AsyncStorage.setItem('authToken', data.key); // ✅ added
+  if (data.key) await AsyncStorage.setItem('authToken', data.key);
   return data;
 };
 
@@ -165,7 +223,7 @@ export const logoutUser = async () => {
   } catch (error) {
     console.warn('Server logout failed (clearing local session anyway):', error.message);
   } finally {
-    await AsyncStorage.multiRemove(['authToken', 'user_data', 'is_new_user']); // ✅ always runs
+    await AsyncStorage.multiRemove(['authToken', 'user_data', 'is_new_user']);
   }
 };
 
