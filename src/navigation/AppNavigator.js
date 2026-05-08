@@ -7,7 +7,6 @@ import {
   DefaultTheme,
 } from '@react-navigation/native';
 import messaging from '@react-native-firebase/messaging';
-import { getApp } from '@react-native-firebase/app';
 import api from '../api/client';
 
 // Contexts
@@ -71,11 +70,11 @@ export default function AppNavigator() {
     const setupMessaging = async () => {
       if (!user?.token) return;
       try {
-        const msg = messaging(getApp());
+        const msg = messaging(); // ✅ default app, simpler and correct
         const authStatus = await msg.requestPermission();
         const enabled =
-          authStatus === msg.AuthorizationStatus.AUTHORIZED ||
-          authStatus === msg.AuthorizationStatus.PROVISIONAL;
+          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
         if (enabled) {
           const currentToken = await msg.getToken();
@@ -88,8 +87,8 @@ export default function AppNavigator() {
 
     setupMessaging();
 
-    // Notification Handlers
-    const msg = messaging(getApp());
+    // Notification Handlers — msg instance for subscriptions
+    const msg = messaging(); // ✅ use default app instance (no getApp() needed here)
     const unsubscribeOnNotificationOpened = msg.onNotificationOpenedApp(
       remoteMessage => handleNotificationNavigation(remoteMessage.data),
     );

@@ -24,8 +24,10 @@ import api, { BASE_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
-// ✅ Correct named import
-import { MentionInput } from 'react-native-controlled-mentions';
+// Support both v2 (named export) and v3 (deprecated) of react-native-controlled-mentions
+// Falls back to a plain TextInput wrapper if MentionInput is undefined (v3+)
+import RNCMentions from 'react-native-controlled-mentions';
+const MentionInput = RNCMentions?.MentionInput || RNCMentions?.default || null;
 
 const LEAGUE_MAP = {
   1:  { name: 'Premier League',    logo: require('../screens/assets/epl.png') },
@@ -472,37 +474,50 @@ export default function CreatePostScreen({ route, navigation }) {
         )}
       </View>
 
-      <MentionInput
-        value={content}
-        onChange={setContent}
-        placeholder={quoteMode ? 'Add a comment...' : "What's on your mind?"}
-        placeholderTextColor={theme.colors.subText}
-        multiline={true}
-        numberOfLines={4}
-        blurOnSubmit={false}
-        style={themedStyles.input}
-        partTypes={[
-          {
-            trigger: '@',
-            renderSuggestions: ({ keyword, onSuggestionPress }) => (
-              <SuggestionList
-                keyword={keyword}
-                onSuggestionPress={onSuggestionPress}
-                fetchUserSuggestions={fetchUserSuggestions}
-                suggestions={suggestions}
-                mentionLoading={mentionLoading}
-                theme={theme}
-                themedStyles={themedStyles}
-              />
-            ),
-            textStyle: { color: theme.colors.primary, fontWeight: 'bold' },
-          },
-          {
-            trigger: '#',
-            textStyle: { color: '#28a745', fontWeight: 'bold' },
-          },
-        ]}
-      />
+      {MentionInput ? (
+        <MentionInput
+          value={content}
+          onChange={setContent}
+          placeholder={quoteMode ? 'Add a comment...' : "What's on your mind?"}
+          placeholderTextColor={theme.colors.subText}
+          multiline={true}
+          numberOfLines={4}
+          blurOnSubmit={false}
+          style={themedStyles.input}
+          partTypes={[
+            {
+              trigger: '@',
+              renderSuggestions: ({ keyword, onSuggestionPress }) => (
+                <SuggestionList
+                  keyword={keyword}
+                  onSuggestionPress={onSuggestionPress}
+                  fetchUserSuggestions={fetchUserSuggestions}
+                  suggestions={suggestions}
+                  mentionLoading={mentionLoading}
+                  theme={theme}
+                  themedStyles={themedStyles}
+                />
+              ),
+              textStyle: { color: theme.colors.primary, fontWeight: 'bold' },
+            },
+            {
+              trigger: '#',
+              textStyle: { color: '#28a745', fontWeight: 'bold' },
+            },
+          ]}
+        />
+      ) : (
+        <TextInput
+          value={content}
+          onChangeText={setContent}
+          placeholder={quoteMode ? 'Add a comment...' : "What's on your mind?"}
+          placeholderTextColor={theme.colors.subText}
+          multiline={true}
+          numberOfLines={4}
+          blurOnSubmit={false}
+          style={themedStyles.input}
+        />
+      )}
 
       {/* Quote Preview */}
       {quoteMode && parentPost && (

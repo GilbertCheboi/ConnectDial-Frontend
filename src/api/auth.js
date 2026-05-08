@@ -52,7 +52,7 @@ export const registerUser = async ({ username, email, password1, password2 }) =>
 
 export const configureGoogleSignin = () => {
   GoogleSignin.configure({
-    webClientId: '849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com',
+    webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com',
     offlineAccess: true,
   });
 };
