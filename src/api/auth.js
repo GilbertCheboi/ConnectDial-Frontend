@@ -52,8 +52,15 @@ export const registerUser = async ({ username, email, password1, password2 }) =>
 
 export const configureGoogleSignin = () => {
   GoogleSignin.configure({
+    // ✅ MUST be the Web OAuth 2.0 Client ID from Google Cloud Console
+    // (NOT the Android client ID — the web client ID is what the backend verifies)
     webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com',
-    offlineAccess: true,
+    // ✅ offlineAccess MUST be false — setting it true causes Google to return
+    // a serverAuthCode instead of an idToken on many Android devices,
+    // which breaks direct id_token verification on the backend.
+    offlineAccess: false,
+    // ✅ forceCodeForRefreshToken false for same reason
+    forceCodeForRefreshToken: false,
   });
 };
 
@@ -74,30 +81,20 @@ const extractIdToken = (userInfo) => {
   // v6–v12 shape: { idToken, user, ... }
   if (userInfo?.idToken) return userInfo.idToken;
 
-  // Some v13 builds expose it at the top level as well
-  if (userInfo?.data?.serverAuthCode && !userInfo?.data?.idToken) {
-    // serverAuthCode present but no idToken → offlineAccess only, can't proceed
-    throw new Error(
-      'Google sign-in returned a serverAuthCode but no idToken. ' +
-      'Ensure your webClientId is a WEB client ID (not Android/iOS).'
-    );
-  }
-
   return null;
-};
-
-export const configureGoogleSignin = () => {
-  GoogleSignin.configure({
-    webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com', // ← MUST be the WEB client ID
-    offlineAccess: true,   // good for getting id_token
-    // iosClientId: '...'  // optional but recommended for iOS
-  });
 };
 
 export const googleLogin = async () => {
   try {
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut(); // force account picker
+
+    // ✅ Wrap signOut in try/catch — throws if no user is currently signed in
+    // (e.g. first launch). We still want to force the account picker when possible.
+    try {
+      await GoogleSignin.signOut();
+    } catch (_) {
+      // Ignore — no user was signed in, that's fine
+    }
 
     const userInfo = await GoogleSignin.signIn();
     console.log('Google userInfo:', JSON.stringify(userInfo, null, 2));
@@ -105,31 +102,49 @@ export const googleLogin = async () => {
     const idToken = extractIdToken(userInfo);
 
     if (!idToken) {
-      throw new Error('No id_token received from Google. Check webClientId is a WEB client ID.');
+      throw new Error(
+        'No idToken received from Google.\n' +
+        'Checklist:\n' +
+        '  1. webClientId must be the WEB OAuth client ID (not Android/iOS)\n' +
+        '  2. offlineAccess must be false\n' +
+        '  3. SHA-1 fingerprint must be registered in Google Cloud Console\n' +
+        '  4. google-services.json must be up to date'
+      );
     }
 
     console.log('Sending id_token to backend...');
 
-    const { data } = await api.post('auth/social/google/', { 
-      id_token: idToken 
+    const { data } = await api.post('auth/social/google/', {
+      id_token: idToken,
     });
 
     if (!data.key) {
-      throw new Error('Backend did not return auth token');
+      throw new Error('Backend did not return auth token. Check backend logs.');
     }
 
     await persistSession(data.key, data.user);
-    return { 
-      token: data.key, 
-      user: data.user, 
-      isNewUser: data.is_new_user ?? false 
+    return {
+      token: data.key,
+      user: data.user,
+      isNewUser: data.is_new_user ?? false,
     };
 
   } catch (error) {
-    console.error('Google Login Error Details:', error);
+    console.error('Google Login Error:', error?.code, error?.message);
+
     if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      // User pressed back — rethrow so the UI can handle it silently
       throw error;
     }
+
+    if (error.code === statusCodes.IN_PROGRESS) {
+      throw new Error('Google Sign-In is already in progress.');
+    }
+
+    if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      throw new Error('Google Play Services not available on this device.');
+    }
+
     throw error;
   }
 };
@@ -224,6 +239,12 @@ export const logoutUser = async () => {
     console.warn('Server logout failed (clearing local session anyway):', error.message);
   } finally {
     await AsyncStorage.multiRemove(['authToken', 'user_data', 'is_new_user']);
+    // Also sign out of Google so next login shows account picker
+    try {
+      await GoogleSignin.signOut();
+    } catch (_) {
+      // Ignore if not signed in
+    }
   }
 };
 
