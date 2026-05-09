@@ -12,16 +12,14 @@ const persistSession = async (key, user) => {
   ]);
 };
 
-// ── LOGIN ────────────────────────────────────────────────────────────────────
-
+// LOGIN
 export const loginUser = async (username, password) => {
   const { data } = await api.post('auth/login/', { username, password });
   await persistSession(data.key, data.user);
   return data;
 };
 
-// ── OTP ─────────────────────────────────────────────────────────────────────
-
+// OTP
 export const sendOTP = async (identifier, purpose = 'login') => {
   const { data } = await api.post('auth/otp/send/', { identifier, purpose });
   return data;
@@ -38,8 +36,7 @@ export const verifyOTP = async (identifier, otp, purpose = 'login') => {
 export const resendLoginOTP = (identifier) => sendOTP(identifier, 'login');
 export const verifyLoginOTP = (identifier, otp) => verifyOTP(identifier, otp, 'login');
 
-// ── REGISTER ─────────────────────────────────────────────────────────────────
-
+// REGISTER
 export const registerUser = async ({ username, email, password1, password2 }) => {
   const { data } = await api.post('auth/register/', { username, email, password1, password2 });
   if (data.token) {
@@ -48,35 +45,11 @@ export const registerUser = async ({ username, email, password1, password2 }) =>
   return data;
 };
 
-// ── GOOGLE ───────────────────────────────────────────────────────────────────
-
-export const configureGoogleSignin = () => {
-  GoogleSignin.configure({
-    webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com',
-    offlineAccess: true,
-  });
-};
-
-/**
- * Extracts the idToken from the GoogleSignin.signIn() response.
- *
- * The response shape changed across library versions:
- *   - v6–v12 (old):  { idToken: '...' }           ← top-level
- *   - v13+   (new):  { data: { idToken: '...' } }  ← nested under data
- *
- * This helper handles both shapes so the code works regardless of
- * which version is installed.
- */
 const extractIdToken = (userInfo) => {
-  // v13+ shape: { data: { idToken, user, ... } }
   if (userInfo?.data?.idToken) return userInfo.data.idToken;
-
-  // v6–v12 shape: { idToken, user, ... }
   if (userInfo?.idToken) return userInfo.idToken;
 
-  // Some v13 builds expose it at the top level as well
   if (userInfo?.data?.serverAuthCode && !userInfo?.data?.idToken) {
-    // serverAuthCode present but no idToken → offlineAccess only, can't proceed
     throw new Error(
       'Google sign-in returned a serverAuthCode but no idToken. ' +
       'Ensure your webClientId is a WEB client ID (not Android/iOS).'
@@ -88,54 +61,52 @@ const extractIdToken = (userInfo) => {
 
 export const configureGoogleSignin = () => {
   GoogleSignin.configure({
-    webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com', // ← MUST be the WEB client ID
-    offlineAccess: true,   // good for getting id_token
-    // iosClientId: '...'  // optional but recommended for iOS
+    webClientId: '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com',
+    offlineAccess: true,
   });
 };
 
 export const googleLogin = async () => {
   try {
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut(); // force account picker
+
+    // Optional: clear previous session for a fresh login
+    await GoogleSignin.signOut();
 
     const userInfo = await GoogleSignin.signIn();
-    console.log('Google userInfo:', JSON.stringify(userInfo, null, 2));
 
-    const idToken = extractIdToken(userInfo);
+    // Modern response handling
+    let idToken = null;
 
-    if (!idToken) {
-      throw new Error('No id_token received from Google. Check webClientId is a WEB client ID.');
+    if (userInfo?.type === 'success') {
+      idToken = userInfo.data?.idToken;
+    } else {
+      throw new Error('Google sign-in was cancelled or failed');
     }
 
-    console.log('Sending id_token to backend...');
+    if (!idToken) {
+      throw new Error('Google sign-in did not return an ID token.');
+    }
 
-    const { data } = await api.post('auth/social/google/', { 
+    const { data } = await client.post('auth/social/google/', { 
       id_token: idToken 
     });
 
-    if (!data.key) {
-      throw new Error('Backend did not return auth token');
-    }
+    console.log('✅ FULL BACKEND RESPONSE:', JSON.stringify(data));
 
-    await persistSession(data.key, data.user);
+    const user = await saveSession(data);
     return { 
-      token: data.key, 
-      user: data.user, 
+      user, 
       isNewUser: data.is_new_user ?? false 
     };
-
   } catch (error) {
-    console.error('Google Login Error Details:', error);
-    if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-      throw error;
-    }
+    // Handle specific Google errors if needed
+    console.error('Google login error:', error);
     throw error;
   }
 };
 
-// ── PASSWORD ─────────────────────────────────────────────────────────────────
-
+// PASSWORD
 export const requestPasswordReset = async (email) => {
   const { data } = await api.post('auth/password/forgot/', { email });
   return data;
@@ -167,8 +138,7 @@ export const changePassword = async (oldPassword, newPassword) => {
   return data;
 };
 
-// ── EMAIL VERIFICATION ───────────────────────────────────────────────────────
-
+// EMAIL VERIFICATION
 export const sendEmailVerification = async () => {
   const { data } = await api.post('auth/email/send-verification/');
   return data;
@@ -180,8 +150,7 @@ export const verifyEmail = async (otp) => {
   return data;
 };
 
-// ── 2FA ──────────────────────────────────────────────────────────────────────
-
+// 2FA
 export const setup2FA = async () => {
   const { data } = await api.post('auth/2fa/setup/');
   return data;
@@ -208,15 +177,13 @@ export const get2FAStatus = async () => {
   return data;
 };
 
-// ── TOKEN ────────────────────────────────────────────────────────────────────
-
+// TOKEN
 export const checkToken = async () => {
   const { data } = await api.get('auth/token/check/');
   return data;
 };
 
-// ── LOGOUT ───────────────────────────────────────────────────────────────────
-
+// LOGOUT
 export const logoutUser = async () => {
   try {
     await api.post('auth/logout/');
@@ -227,8 +194,7 @@ export const logoutUser = async () => {
   }
 };
 
-// ── PROFILE & SOCIAL ─────────────────────────────────────────────────────────
-
+// PROFILE & SOCIAL
 export const getProfile = async (params = {}) => {
   const { data } = await api.get('auth/update/', { params });
   return data;
