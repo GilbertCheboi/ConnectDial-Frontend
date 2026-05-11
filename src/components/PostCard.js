@@ -1,4 +1,4 @@
-import React, { useState, useContext, useRef, useCallback } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import Autolink from 'react-native-autolink';
 import { AuthContext } from '../store/authStore';
 import { useFollow } from '../store/FollowContext';
 import api from '../api/client';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { ThemeContext } from '../store/themeStore';
 
 const { width } = Dimensions.get('window');
@@ -36,9 +36,6 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   const { user } = useContext(AuthContext);
   const { followingIds, updateFollowStatus } = useFollow();
   const navigation = useNavigation();
-
-  // ✅ Track whether this screen is currently focused
-  const isFocused = useIsFocused();
 
   const [isExpanded, setIsExpanded] = React.useState(false);
   const TEXT_LIMIT = 180;
@@ -86,10 +83,16 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   const [liked, setLiked] = useState(post.liked_by_me || false);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
 
-  // ✅ userPaused = did the USER explicitly pause it?
-  // ✅ video is paused if: screen not focused OR user paused it
+  // ✅ Video starts paused. Tap to play, tap to pause. Navigating away forces pause.
   const [userPaused, setUserPaused] = useState(true);
-  const videoPaused = !isFocused || userPaused;
+
+  useEffect(() => {
+    // ✅ Whenever user navigates away from this screen, pause all videos
+    const unsubscribe = navigation.addListener('blur', () => {
+      setUserPaused(true);
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   const [followLoading, setFollowLoading] = useState(false);
 
@@ -514,12 +517,12 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
                   source={getMediaSource(post.media_file)}
                   style={styles.mediaImage}
                   resizeMode="cover"
-                  paused={videoPaused}   // ✅ paused when navigated away OR user paused
+                  paused={userPaused}   // ✅ starts paused, tap to play, blur to pause
                   repeat
                   onError={e => console.log('Video error:', e)}
                 />
-                {/* ✅ Play/pause overlay icon */}
-                {videoPaused && (
+                {/* ✅ Play overlay shown when paused */}
+                {userPaused && (
                   <View style={styles.playOverlay}>
                     <MaterialCommunityIcons
                       name="play-circle"
