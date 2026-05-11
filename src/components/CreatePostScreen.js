@@ -19,15 +19,15 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-// ✅ BASE_URL imported from client — no hardcoded IPs anywhere
 import api, { BASE_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
-// Support both v2 (named export) and v3 (deprecated) of react-native-controlled-mentions
-// Falls back to a plain TextInput wrapper if MentionInput is undefined (v3+)
 import RNCMentions from 'react-native-controlled-mentions';
 const MentionInput = RNCMentions?.MentionInput || RNCMentions?.default || null;
+
+// ✅ Max images allowed for a standard post
+const MAX_IMAGES = 5;
 
 const LEAGUE_MAP = {
   1:  { name: 'Premier League',    logo: require('../screens/assets/epl.png') },
@@ -71,7 +71,6 @@ const DEFAULT_THEME = {
   },
 };
 
-// ✅ Extracted as standalone component — fixes Rules of Hooks violation
 const SuggestionList = ({
   keyword,
   onSuggestionPress,
@@ -113,7 +112,6 @@ export default function CreatePostScreen({ route, navigation }) {
   const { user } = useContext(AuthContext);
   const { theme } = useContext(ThemeContext) || { theme: DEFAULT_THEME };
 
-  // ✅ All route params destructured ONCE at the top — no stale closure bug
   const {
     editMode = false,
     postData = null,
@@ -204,7 +202,10 @@ export default function CreatePostScreen({ route, navigation }) {
       setSelectedLeague(postData.league || leagueId);
       setSelectedName(postData.league_name || leagueName);
       setPostType(postData.is_short ? 'short' : 'standard');
-      if (postData.media_file) {
+      // ✅ Support multiple existing media files (array or single)
+      if (postData.media_files && Array.isArray(postData.media_files)) {
+        setMediaList(postData.media_files.map(uri => ({ uri, isExisting: true })));
+      } else if (postData.media_file) {
         setMediaList([{ uri: postData.media_file, isExisting: true }]);
       }
       navigation.setOptions({ title: 'Edit Post' });
@@ -250,29 +251,53 @@ export default function CreatePostScreen({ route, navigation }) {
     [navigation],
   );
 
+  // ✅ FIXED: Multi-image picker — appends to existing list up to MAX_IMAGES
   const pickMedia = async () => {
+    if (postType === 'short') {
+      // Shorts: single video only
+      const options = {
+        mediaType: 'video',
+        selectionLimit: 1,
+        videoQuality: 'medium',
+        formatAsMp4: true,
+      };
+      const result = await launchImageLibrary(options);
+      if (result.didCancel) return;
+      if (result.assets?.length) {
+        const [asset] = result.assets;
+        if (asset.fileSize && asset.fileSize > 50 * 1024 * 1024) {
+          Alert.alert('Video too large', 'Please choose a video under 50MB.');
+          return;
+        }
+        openShortEditor(asset);
+      }
+      return;
+    }
+
+    // ✅ Standard post: allow up to MAX_IMAGES total
+    const remaining = MAX_IMAGES - mediaList.filter(m => !m.isExisting).length;
+    if (remaining <= 0) {
+      Alert.alert('Limit reached', `You can add up to ${MAX_IMAGES} images.`);
+      return;
+    }
+
     const options = {
-      mediaType: postType === 'short' ? 'video' : 'mixed',
-      selectionLimit: 1,
+      mediaType: 'mixed',
+      selectionLimit: remaining, // ✅ Only allow as many as slots remain
       quality: 0.8,
-      videoQuality: 'medium',
-      formatAsMp4: true,
     };
     const result = await launchImageLibrary(options);
     if (result.didCancel) return;
     if (result.assets?.length) {
-      const [asset] = result.assets;
-      if (postType === 'short' && asset.fileSize && asset.fileSize > 50 * 1024 * 1024) {
-        Alert.alert('Video too large', 'Please choose a video under 50MB.');
-        return;
-      }
-      if (postType === 'short') {
-        openShortEditor(asset);
-        return;
-      }
-      setMediaList(result.assets);
+      // ✅ Append new picks to existing list
+      setMediaList(prev => [...prev, ...result.assets].slice(0, MAX_IMAGES));
     }
   };
+
+  // ✅ FIXED: Remove a single image by index instead of clearing all
+  const removeMedia = useCallback(index => {
+    setMediaList(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
   const fetchUserSuggestions = useCallback(async keyword => {
     if (!keyword) { setSuggestions([]); return; }
@@ -318,18 +343,17 @@ export default function CreatePostScreen({ route, navigation }) {
       formData.append('league', selectedLeague ? selectedLeague.toString() : '');
     }
 
+    // ✅ FIXED: Only append new (non-existing) media
+    // ✅ FIXED: Keep file:// prefix — React Native FormData requires it on Android
+    // ✅ FIXED: Use media_files[] key so Django/DRF receives a proper list
     const newMedia = mediaList.filter(m => !m.isExisting);
-    if (newMedia.length > 0) {
-      newMedia.forEach((media, index) => {
-        // ✅ strip file:// safely on both platforms
-        const fileUri = media.uri.replace('file://', '');
-        formData.append('media_file', {
-          uri: fileUri,
-          type: media.type || (postType === 'short' ? 'video/mp4' : 'image/jpeg'),
-          name: media.fileName || `upload_${Date.now()}_${index}.${postType === 'short' ? 'mp4' : 'jpg'}`,
-        });
+    newMedia.forEach((media, index) => {
+      formData.append('media_files', {
+        uri: media.uri,  // ✅ Do NOT strip file:// — RN FormData needs it
+        type: media.type || (postType === 'short' ? 'video/mp4' : 'image/jpeg'),
+        name: media.fileName || `upload_${Date.now()}_${index}.${postType === 'short' ? 'mp4' : 'jpg'}`,
       });
-    }
+    });
 
     try {
       const config = {
@@ -337,7 +361,6 @@ export default function CreatePostScreen({ route, navigation }) {
         onUploadProgress: progressEvent => {
           const total = progressEvent.total || progressEvent.loaded || 0;
           if (!total) return;
-          // ✅ Cap at 95 while uploading, success handler sets 100
           const percent = Math.min(
             Math.round((progressEvent.loaded * 100) / total),
             95,
@@ -369,6 +392,8 @@ export default function CreatePostScreen({ route, navigation }) {
       setLoading(false);
       setUploadProgress(0);
       console.log('❌ FULL BACKEND ERROR:', JSON.stringify(err.response?.data, null, 2));
+      console.log('❌ STATUS:', err.response?.status);
+      console.log('❌ MESSAGE:', err.message);
       Alert.alert('Error', 'Could not save post. Check console for details.');
     }
   };
@@ -534,12 +559,16 @@ export default function CreatePostScreen({ route, navigation }) {
         </View>
       )}
 
-      {/* Media Preview */}
+      {/* ✅ FIXED: Multi-image preview with horizontal scroll and per-item remove */}
       {mediaList.length > 0 && (
-        <View style={themedStyles.mediaRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={themedStyles.mediaRow}
+          contentContainerStyle={{ gap: 10 }}
+        >
           {mediaList.map((item, index) => (
             <View key={index} style={themedStyles.previewWrapper}>
-              {/* ✅ Video vs image thumbnail */}
               {item.type?.includes('video') ? (
                 <View
                   style={[
@@ -552,7 +581,6 @@ export default function CreatePostScreen({ route, navigation }) {
               ) : (
                 <Image
                   source={{
-                    // ✅ Use BASE_URL instead of hardcoded IP
                     uri: item.isExisting
                       ? (item.uri.startsWith('http') ? item.uri : `${BASE_URL}${item.uri}`)
                       : item.uri,
@@ -560,20 +588,35 @@ export default function CreatePostScreen({ route, navigation }) {
                   style={themedStyles.thumbnail}
                 />
               )}
+              {/* ✅ FIXED: Remove only this specific image */}
               <TouchableOpacity
                 style={themedStyles.removeBadge}
-                onPress={() => setMediaList([])}
+                onPress={() => removeMedia(index)}
               >
                 <Ionicons name="close-circle" size={24} color={theme.colors.notificationBadge} />
               </TouchableOpacity>
             </View>
           ))}
-          {postType === 'short' && mediaList[0]?.editConfig?.musicTrackTitle && (
-            <Text style={[themedStyles.shortEditSummary, { color: theme.colors.primary }]}>
-              Sound: {mediaList[0].editConfig.musicTrackTitle}
-            </Text>
+
+          {/* ✅ Add more images button inline (up to MAX_IMAGES) */}
+          {postType !== 'short' && mediaList.length < MAX_IMAGES && (
+            <TouchableOpacity
+              style={[themedStyles.addMoreBtn, { borderColor: theme.colors.primary }]}
+              onPress={pickMedia}
+            >
+              <Ionicons name="add" size={32} color={theme.colors.primary} />
+              <Text style={[themedStyles.addMoreText, { color: theme.colors.subText }]}>
+                {mediaList.length}/{MAX_IMAGES}
+              </Text>
+            </TouchableOpacity>
           )}
-        </View>
+        </ScrollView>
+      )}
+
+      {postType === 'short' && mediaList[0]?.editConfig?.musicTrackTitle && (
+        <Text style={[themedStyles.shortEditSummary, { color: theme.colors.primary }]}>
+          Sound: {mediaList[0].editConfig.musicTrackTitle}
+        </Text>
       )}
 
       {/* Toolbar */}
@@ -590,7 +633,12 @@ export default function CreatePostScreen({ route, navigation }) {
               { color: postType === 'short' ? theme.colors.notificationBadge : theme.colors.primary },
             ]}
           >
-            {mediaList.length > 0 ? 'Replace' : 'Add Media'}
+            {/* ✅ Show count when multiple images selected */}
+            {mediaList.length > 0
+              ? postType === 'short'
+                ? 'Replace'
+                : `${mediaList.length} image${mediaList.length > 1 ? 's' : ''} · Add more`
+              : 'Add Media'}
           </Text>
         </TouchableOpacity>
 
@@ -652,11 +700,15 @@ const styles = theme =>
     quotePreviewHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
     quotePreviewUser:   { color: theme.colors.primary, fontWeight: 'bold', marginLeft: 8, fontSize: 13 },
     quotePreviewText:   { color: theme.colors.text, fontSize: 14, lineHeight: 20 },
+    // ✅ Horizontal scroll media row
     mediaRow:           { marginVertical: 15 },
     previewWrapper:     { position: 'relative', width: 100 },
     shortEditSummary:   { fontSize: 13, fontWeight: '700', marginTop: 12 },
     thumbnail:          { width: 100, height: 100, borderRadius: 10, backgroundColor: theme.colors.card },
     removeBadge:        { position: 'absolute', top: -10, right: -10, zIndex: 1 },
+    // ✅ Add-more inline button
+    addMoreBtn:         { width: 100, height: 100, borderRadius: 10, borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+    addMoreText:        { fontSize: 11, marginTop: 4 },
     toolbar:            { borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 15, marginTop: 10, gap: 16 },
     toolBtn:            { flexDirection: 'row', alignItems: 'center' },
     toolText:           { marginLeft: 8, fontWeight: '600' },
