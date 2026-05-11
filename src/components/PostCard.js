@@ -93,7 +93,7 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
     if (!path) return null;
     return path.startsWith('http')
       ? { uri: path }
-      : { uri: `http://192.168.100.107:8000${path}` };
+      : { uri: `https://api.connectdial.com/${path}` };
   };
 
   // ==================== SMART SHARE FUNCTION ====================
