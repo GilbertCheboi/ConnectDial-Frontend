@@ -12,16 +12,14 @@ const persistSession = async (key, user) => {
   ]);
 };
 
-// ── LOGIN ────────────────────────────────────────────────────────────────────
-
+// LOGIN
 export const loginUser = async (username, password) => {
   const { data } = await api.post('auth/login/', { username, password });
   await persistSession(data.key, data.user);
   return data;
 };
 
-// ── OTP ─────────────────────────────────────────────────────────────────────
-
+// OTP
 export const sendOTP = async (identifier, purpose = 'login') => {
   const { data } = await api.post('auth/otp/send/', { identifier, purpose });
   return data;
@@ -38,8 +36,7 @@ export const verifyOTP = async (identifier, otp, purpose = 'login') => {
 export const resendLoginOTP = (identifier) => sendOTP(identifier, 'login');
 export const verifyLoginOTP = (identifier, otp) => verifyOTP(identifier, otp, 'login');
 
-// ── REGISTER ─────────────────────────────────────────────────────────────────
-
+// REGISTER
 export const registerUser = async ({ username, email, password1, password2 }) => {
   const { data } = await api.post('auth/register/', { username, email, password1, password2 });
   if (data.token) {
@@ -75,10 +72,7 @@ export const configureGoogleSignin = () => {
  * which version is installed.
  */
 const extractIdToken = (userInfo) => {
-  // v13+ shape: { data: { idToken, user, ... } }
   if (userInfo?.data?.idToken) return userInfo.data.idToken;
-
-  // v6–v12 shape: { idToken, user, ... }
   if (userInfo?.idToken) return userInfo.idToken;
 
   return null;
@@ -97,9 +91,15 @@ export const googleLogin = async () => {
     }
 
     const userInfo = await GoogleSignin.signIn();
-    console.log('Google userInfo:', JSON.stringify(userInfo, null, 2));
 
-    const idToken = extractIdToken(userInfo);
+    // Modern response handling
+    let idToken = null;
+
+    if (userInfo?.type === 'success') {
+      idToken = userInfo.data?.idToken;
+    } else {
+      throw new Error('Google sign-in was cancelled or failed');
+    }
 
     if (!idToken) {
       throw new Error(
@@ -128,7 +128,6 @@ export const googleLogin = async () => {
       user: data.user,
       isNewUser: data.is_new_user ?? false,
     };
-
   } catch (error) {
     console.error('Google Login Error:', error?.code, error?.message);
 
@@ -149,8 +148,7 @@ export const googleLogin = async () => {
   }
 };
 
-// ── PASSWORD ─────────────────────────────────────────────────────────────────
-
+// PASSWORD
 export const requestPasswordReset = async (email) => {
   const { data } = await api.post('auth/password/forgot/', { email });
   return data;
@@ -182,8 +180,7 @@ export const changePassword = async (oldPassword, newPassword) => {
   return data;
 };
 
-// ── EMAIL VERIFICATION ───────────────────────────────────────────────────────
-
+// EMAIL VERIFICATION
 export const sendEmailVerification = async () => {
   const { data } = await api.post('auth/email/send-verification/');
   return data;
@@ -195,8 +192,7 @@ export const verifyEmail = async (otp) => {
   return data;
 };
 
-// ── 2FA ──────────────────────────────────────────────────────────────────────
-
+// 2FA
 export const setup2FA = async () => {
   const { data } = await api.post('auth/2fa/setup/');
   return data;
@@ -223,15 +219,13 @@ export const get2FAStatus = async () => {
   return data;
 };
 
-// ── TOKEN ────────────────────────────────────────────────────────────────────
-
+// TOKEN
 export const checkToken = async () => {
   const { data } = await api.get('auth/token/check/');
   return data;
 };
 
-// ── LOGOUT ───────────────────────────────────────────────────────────────────
-
+// LOGOUT
 export const logoutUser = async () => {
   try {
     await api.post('auth/logout/');
@@ -248,8 +242,7 @@ export const logoutUser = async () => {
   }
 };
 
-// ── PROFILE & SOCIAL ─────────────────────────────────────────────────────────
-
+// PROFILE & SOCIAL
 export const getProfile = async (params = {}) => {
   const { data } = await api.get('auth/update/', { params });
   return data;
