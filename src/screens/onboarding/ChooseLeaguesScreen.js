@@ -16,7 +16,7 @@ import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
 
 // 🚀 Replace with your HP 290 local IP or production domain
-const API_BASE_URL = 'http://192.168.100.108:8000/api';
+const API_BASE_URL = 'http://api.connectdial.com/api';
 
 export default function ChooseLeaguesScreen({ navigation, route }) {
   const { user } = useContext(AuthContext);

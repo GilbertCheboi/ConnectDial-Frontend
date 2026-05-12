@@ -1,4 +1,7 @@
-import React, { useState, useContext, useEffect } from 'react';
+/**
+ * src/screens/auth/LoginScreen.js
+ */
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,14 +14,12 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { loginUser } from '../../api/auth';
-import { googleLogin } from '../../services/auth';
-import { AuthContext } from '../../store/authStore';
-import { configureGoogleSignin } from '../../services/googleSignIn';
+import { loginUser, googleLogin, configureGoogleSignin } from '../../api/auth';
+import { useAuth } from '../../store/authStore';
 
 export default function LoginScreen({ navigation }) {
-  const { login } = useContext(AuthContext);
-  const [username, setUsername] = useState('');
+  const { login } = useAuth();
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -27,39 +28,45 @@ export default function LoginScreen({ navigation }) {
   }, []);
 
   const handleLogin = async () => {
-    if (!username || !password) {
-      Alert.alert('Error', 'Please enter both username and password');
+    if (!identifier.trim() || !password) {
+      Alert.alert('Required', 'Please enter your username/email and password.');
       return;
     }
 
     setLoading(true);
     try {
-      const data = await loginUser(username, password);
-      if (data && data.key) {
-        await login(data);
-        // No navigation here → AppNavigator will handle it automatically
-      } else {
-        Alert.alert('Login failed', 'Server did not return a valid token.');
+      const result = await loginUser(identifier.trim(), password);
+
+      if (result.twoFARequired) {
+        navigation.navigate('TwoFA', { pendingToken: result.pendingToken });
+        return;
       }
+
+      await login(result);
+      // No manual navigation needed — AppNavigator will handle it
     } catch (err) {
-      console.log('Login Error:', err);
-      Alert.alert(
-        'Invalid credentials',
-        'Please check your username and password.',
-      );
+      const msg = err?.response?.data?.error
+        || err?.response?.data?.detail
+        || 'Invalid username or password.';
+      Alert.alert('Login Failed', msg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
+    setLoading(true);
     try {
-      const userData = await googleLogin();
-      await login(userData);
-      // No navigation here → AppNavigator will handle it automatically
+      const result = await googleLogin();
+      console.log("🔑 Google Result keys:", Object.keys(result));
+
+      await login(result);
+      // AppNavigator will automatically redirect
     } catch (err) {
-      console.error('Google Login Error:', err);
-      Alert.alert('Google Login Failed', 'Something went wrong. Please try again.');
+      console.error("Google Login Error:", err);
+      Alert.alert('Google Login Failed', err?.message || 'Something went wrong');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -76,12 +83,14 @@ export default function LoginScreen({ navigation }) {
 
         <View style={styles.formContainer}>
           <TextInput
-            placeholder="Username"
+            placeholder="Username or Email"
             placeholderTextColor="#666"
-            value={username}
-            onChangeText={setUsername}
+            value={identifier}
+            onChangeText={setIdentifier}
             style={styles.input}
             autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
           />
           <TextInput
             placeholder="Password"
@@ -91,25 +100,21 @@ export default function LoginScreen({ navigation }) {
             onChangeText={setPassword}
             style={styles.input}
           />
-
-          <TouchableOpacity
-            onPress={() => navigation.navigate('ForgotPassword')}
-            style={styles.forgotContainer}
-          >
-            <Text style={styles.forgotText}>Forgot Password?</Text>
-          </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          onPress={() => navigation.navigate('ForgotPassword')}
+          style={styles.forgotContainer}
+        >
+          <Text style={styles.forgotText}>Forgot password?</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, loading && { opacity: 0.7 }]}
           onPress={handleLogin}
           disabled={loading}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Login</Text>
-          )}
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
         </TouchableOpacity>
 
         <View style={styles.dividerContainer}>
@@ -119,8 +124,9 @@ export default function LoginScreen({ navigation }) {
         </View>
 
         <TouchableOpacity
-          style={styles.googleButton}
+          style={[styles.googleButton, loading && { opacity: 0.7 }]}
           onPress={handleGoogleLogin}
+          disabled={loading}
         >
           <Text style={styles.googleButtonText}>Continue with Google</Text>
         </TouchableOpacity>
@@ -145,7 +151,7 @@ const styles = StyleSheet.create({
   headerContainer: { marginBottom: 40 },
   title: { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
   subtitle: { fontSize: 16, color: '#aaa' },
-  formContainer: { marginBottom: 20 },
+  formContainer: { marginBottom: 8 },
   input: {
     backgroundColor: '#1e1e1e',
     color: '#fff',
@@ -156,36 +162,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
-  forgotContainer: {
-    alignSelf: 'flex-end',
-    marginTop: -8,
-    marginBottom: 4,
-  },
-  forgotText: {
-    color: '#007AFF',
-    fontSize: 14,
-    fontWeight: '500',
-  },
+  forgotContainer: { alignItems: 'flex-end', marginBottom: 20 },
+  forgotText: { color: '#007AFF', fontSize: 14 },
   button: {
     backgroundColor: '#007AFF',
     borderRadius: 12,
     padding: 18,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 4,
   },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 30,
-  },
+  dividerContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 30 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#333' },
-  dividerText: {
-    color: '#666',
-    marginHorizontal: 10,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  dividerText: { color: '#666', marginHorizontal: 10, fontSize: 12, fontWeight: 'bold' },
   googleButton: {
     backgroundColor: '#fff',
     borderRadius: 12,

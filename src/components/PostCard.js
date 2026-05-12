@@ -1,233 +1,86 @@
-import React, { useState, useContext } from 'react';
+/**
+ * PostCard.js – Updated with VideoPlayer integration
+ * Features:
+ * • Uses new VideoPlayer for all video playback
+ * • No autoplay on posts (prevents bandwidth waste)
+ * • Streaming-ready video handling
+ * • Supports both short-form and standard videos
+ */
+
+import React, { useContext, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   Image,
   TouchableOpacity,
-  Dimensions,
+  StyleSheet,
   Alert,
-  ActivityIndicator,
-  Linking, // 🚀 Added for opening URLs
+  Linking,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import Video from 'react-native-video';
-import Autolink from 'react-native-autolink'; // 🚀 Added for Mentions/Hashtags/Links
-import { AuthContext } from '../store/authStore';
-import { useFollow } from '../store/FollowContext';
-import api from '../api/client';
+import Autolink from 'react-native-autolink';
 import { useNavigation } from '@react-navigation/native';
+import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
+import api from '../api/client';
+import VideoPlayer from './VideoPlayer';
 
-const { width } = Dimensions.get('window');
-
-const formatTimeAgo = dateString => {
-  if (!dateString) return '';
-  const now = new Date();
-  const postDate = new Date(dateString);
-  const diffInSeconds = Math.floor((now - postDate) / 1000);
-  if (diffInSeconds < 60) return 'now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
-  if (diffInSeconds < 84400) return `${Math.floor(diffInSeconds / 3600)}h`;
-  return postDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
-};
-
-const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
+const PostCard = ({
+  post,
+  onDeleteSuccess,
+  onCommentPress,
+  onLikePress,
+  onSharePress,
+}) => {
   const { user } = useContext(AuthContext);
-  const { followingIds, updateFollowStatus } = useFollow();
+  const { theme } = useContext(ThemeContext);
   const navigation = useNavigation();
-  const [isExpanded, setIsExpanded] = React.useState(false);
 
-  const TEXT_LIMIT = 180;
-  const shouldTruncate = post.content?.length > TEXT_LIMIT;
-  const { theme } = useContext(ThemeContext) || {
-    theme: {
-      colors: {
-        background: '#0A1624',
-        surface: '#0D1F2D',
-        card: '#112634',
-        text: '#F8FAFC',
-        subText: '#94A3B8',
-        border: '#1E293B',
-        primary: '#1E90FF',
-        secondary: '#64748B',
-        icon: '#1E90FF',
-        button: '#1E90FF',
-        buttonText: '#FFFFFF',
-        inputBackground: '#112634',
-        overlay: 'rgba(255, 255, 255, 0.05)',
-        drawerBackground: '#0D1F2D',
-        drawerText: '#F8FAFC',
-        drawerIcon: '#1E90FF',
-        tabBar: '#0D1F2D',
-        tabBarInactive: '#64748B',
-        header: '#0D1F2D',
-        headerTint: '#F8FAFC',
-        notificationBadge: '#FF4B4B',
-        sheetBackground: '#0D1F2D',
-      },
-    },
-  };
+  const [isLiked, setIsLiked] = useState(post?.liked_by_me || false);
+  const [likesCount, setLikesCount] = useState(post?.likes_count || 0);
 
-  const originalData = post.original_post;
-  const isSimpleRepost = !!originalData && !post.content;
-  const author = post.author_details;
-  const support = post.supporting_info;
-  const isOwner = user?.id === author?.id;
+  const author = post?.author_details;
+  const supportInfo = post?.supporting_info;
+  const isPostOwner = user?.id === author?.id;
 
-  const isFollowing =
-    followingIds.has(author?.id) ||
-    (author?.is_following && !followingIds.has(-author?.id));
+  const profileImageUri =
+    author?.profile_pic ||
+    `https://ui-avatars.com/api/?name=${
+      author?.username || 'U'
+    }&background=162A3B&color=fff`;
 
-  const [liked, setLiked] = useState(post.liked_by_me || false);
-
-  const renderAuthorBadge = () => {
-    const badgeType = author?.badge_type;
-    const accountType = author?.account_type;
-
-    const badgeMap = {
-      official: {
-        label: 'Official Media',
-        icon: 'shield-check',
-        color: '#FACC15',
-      },
-      pioneer: {
-        label: 'Pioneer',
-        icon: 'rocket-launch',
-        color: '#A855F7',
-      },
-      superfan: {
-        label: 'Superfan',
-        icon: 'star-circle',
-        color: '#22C55E',
-      },
-      verified: {
-        label: 'Verified',
-        icon: 'check-circle',
-        color: '#38BDF8',
-      },
-    };
-
-    if (badgeType && badgeType !== 'none') {
-      const badge = badgeMap[badgeType];
-      return (
-        <View style={styles.badgeRow}>
-          <MaterialCommunityIcons
-            name={badge.icon}
-            size={14}
-            color={badge.color}
-          />
-          <Text style={[styles.badgeText, { color: badge.color }]}>
-            {' '}
-            {badge.label}
-          </Text>
-        </View>
-      );
-    }
-
-    if (accountType && accountType !== 'fan') {
-      const label = accountType === 'news' ? 'News / Media' : 'Organization';
-      return (
-        <View style={styles.badgeRow}>
-          <MaterialCommunityIcons
-            name="briefcase-outline"
-            size={14}
-            color="#94A3B8"
-          />
-          <Text style={[styles.badgeText, { color: '#94A3B8' }]}> {label}</Text>
-        </View>
-      );
-    }
-
-    return null;
-  };
-  const [likesCount, setLikesCount] = useState(post.likes_count || 0);
-  const [videoPaused, setVideoPaused] = useState(true);
-  const [followLoading, setFollowLoading] = useState(false);
-
-  const getMediaSource = path => {
-    if (!path) return null;
-    return path.startsWith('http')
-      ? { uri: path }
-      : { uri: `http://192.168.100.107:8000${path}` };
-  };
-
-  const handleFollowToggle = async () => {
-    if (followLoading) return;
-    const previousState = isFollowing;
-    const authorId = author?.id;
-    setFollowLoading(true);
-    updateFollowStatus(authorId, !previousState);
+  // ── Like Handler ─────────────────────────────────────────────────
+  const handleLike = async () => {
     try {
-      const response = await api.post(`auth/users/${authorId}/toggle-follow/`);
-      updateFollowStatus(authorId, response.data.following);
+      const response = await api.post(`/api/posts/${post.id}/like/`);
+      setIsLiked(response.data.liked);
+      setLikesCount(response.data.likes_count);
+
+      if (onLikePress) {
+        onLikePress(post.id, response.data.liked);
+      }
     } catch (err) {
-      updateFollowStatus(authorId, previousState);
-      Alert.alert('Error', 'Could not update follow status.');
-    } finally {
-      setFollowLoading(false);
+      Alert.alert('Error', 'Failed to like post');
     }
   };
 
-  const handleRepostPress = () => {
-    Alert.alert('Share Post', 'Choose how to share this', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Repost',
-        onPress: async () => {
-          try {
-            await api.post(`api/posts/${post.id}/repost/`);
-            Alert.alert('Success', 'Reposted to your feed!');
-          } catch (err) {
-            Alert.alert('Error', 'Could not repost.');
-          }
-        },
-      },
-      {
-        text: 'Quote Post',
-        onPress: () => {
-          navigation.navigate('CreatePost', {
-            quoteMode: true,
-            parentPost: post,
-          });
-        },
-      },
-    ]);
-  };
-
-  const handleMenuPress = () => {
-    const options = [{ text: 'Cancel', style: 'cancel' }];
-
-    if (isOwner) {
-      options.push(
-        {
-          text: 'Edit Post',
-          onPress: () => {
-            // 🚀 Navigate directly to CreatePost with the necessary data
-            navigation.navigate('CreatePost', {
-              editMode: true,
-              postData: post, // This contains the content, media, etc.
-              leagueId: post.league,
-              leagueName: post.supporting_info?.league_name,
-            });
-          },
-        },
-        {
-          text: 'Delete Post',
-          style: 'destructive',
-          onPress: () => confirmDelete(),
-        },
-      );
+  // ── Share Handler ────────────────────────────────────────────────
+  const handleShare = async () => {
+    if (onSharePress) {
+      onSharePress(post.id);
     } else {
-      options.push({
-        text: 'Report Post',
-        onPress: () => Alert.alert('Reported', 'Thank you.'),
-      });
+      try {
+        await api.post(`/api/posts/${post.id}/share/`, {
+          comment: '',
+        });
+      } catch (err) {
+        Alert.alert('Error', 'Failed to share post');
+      }
     }
-    Alert.alert('Post Options', 'Select an action', options);
   };
 
-  const confirmDelete = () => {
+  // ── Delete Handler ───────────────────────────────────────────────
+  const handleDelete = async () => {
     Alert.alert('Delete Post', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -235,465 +88,366 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
         style: 'destructive',
         onPress: async () => {
           try {
-            await api.delete(`api/posts/${post.id}/`);
-            onDeleteSuccess?.(post.id);
+            await api.delete(`/api/posts/${post.id}/`);
+            if (onDeleteSuccess) {
+              onDeleteSuccess(post.id);
+            }
           } catch (err) {
-            Alert.alert('Error', 'Failed to delete');
+            Alert.alert('Error', 'Failed to delete post');
           }
         },
       },
     ]);
   };
 
-  return (
-    <View
-      style={[
-        styles.card,
-        {
-          backgroundColor: theme.colors.card,
-          borderColor: theme.colors.border,
-        },
-      ]}
-    >
-      {isSimpleRepost && (
-        <View style={styles.repostIndicator}>
-          <MaterialCommunityIcons
-            name="repeat"
-            size={16}
-            color={theme.colors.secondary}
-          />
-          <Text
-            style={[styles.repostUserText, { color: theme.colors.secondary }]}
-          >
-            {author?.display_name || author?.username} reposted
-          </Text>
-        </View>
-      )}
+  // ── Menu Handler ─────────────────────────────────────────────────
+  const handleMenuPress = () => {
+    const options = ['Cancel'];
+    const actions = [];
 
-      <View style={styles.topHeader}>
-        <View
-          style={[
-            styles.leagueTag,
-            { backgroundColor: theme.colors.primary + '20' },
-          ]}
-        >
-          <MaterialCommunityIcons
-            name="trophy-variant"
-            size={12}
-            color={theme.colors.primary}
-          />
-          <Text
-            style={[styles.leagueHeaderText, { color: theme.colors.primary }]}
-          >
-            {support?.league_name || 'Global'}
-          </Text>
-        </View>
-        <View style={styles.rightActions}>
-          <Text style={[styles.timestamp, { color: theme.colors.subText }]}>
-            {formatTimeAgo(post.created_at)}
-          </Text>
+    if (isPostOwner) {
+      options.push('Edit', 'Delete');
+      actions.push(
+        () => navigation.navigate('EditPost', { postId: post.id }),
+        handleDelete,
+      );
+    } else {
+      options.push('Report', 'Block User');
+      actions.push(
+        () => Alert.alert('Reported', 'Thank you for reporting'),
+        () => Alert.alert('Blocked', `You blocked @${author.username}`),
+      );
+    }
+
+    Alert.alert('Options', '', [
+      ...options.map((opt, idx) => ({
+        text: opt,
+        onPress: actions[idx] || null,
+        style: idx === 0 || !isPostOwner ? 'cancel' : 'destructive',
+      })),
+    ]);
+  };
+
+  // ── Track video view (3 sec threshold) ────────────────────────────
+  const handleVideoViewCount = async postId => {
+    try {
+      await api.post(`/api/posts/${postId}/view/`);
+    } catch (err) {
+      console.error('View tracking error:', err);
+    }
+  };
+
+  // ── Render Video Posts ───────────────────────────────────────────
+  if (post.post_type === 'video') {
+    return (
+      <View
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+      >
+        {/* Header */}
+        <View style={styles.header}>
           <TouchableOpacity
-            onPress={handleMenuPress}
-            style={styles.menuIconButton}
+            onPress={() =>
+              navigation.navigate('Profile', { userId: author?.id })
+            }
           >
+            <Image source={{ uri: profileImageUri }} style={styles.avatar} />
+          </TouchableOpacity>
+
+          <View style={styles.authorInfo}>
+            <Text style={[styles.username, { color: theme.colors.text }]}>
+              {author?.display_name || author?.username}
+            </Text>
+
+            {author?.badge_type && (
+              <MaterialCommunityIcons
+                name="check-decagram"
+                size={12}
+                color={author.badge_type === 'official' ? '#FFD700' : '#1DA1F2'}
+                style={{ marginLeft: 4 }}
+              />
+            )}
+
+            {supportInfo && (
+              <Text
+                style={[styles.supportText, { color: theme.colors.primary }]}
+              >
+                Supports {supportInfo.team_name}
+              </Text>
+            )}
+          </View>
+
+          <TouchableOpacity onPress={handleMenuPress}>
             <MaterialCommunityIcons
-              name="dots-horizontal"
-              size={22}
-              color={theme.colors.primary}
+              name="dots-vertical"
+              size={20}
+              color={theme.colors.subText}
             />
           </TouchableOpacity>
         </View>
-      </View>
 
-      <View style={styles.authorSection}>
-        <TouchableOpacity
-          onPress={() => navigation.push('Profile', { userId: author?.id })}
-          style={{ flexDirection: 'row', flex: 1, alignItems: 'center' }}
-        >
-          <Image
-            source={{
-              uri:
-                author?.profile_pic ||
-                `https://ui-avatars.com/api/?name=${author?.username}`,
-            }}
-            style={styles.avatar}
-          />
-          <View style={styles.nameColumn}>
-            {/* Username and Badge Row */}
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={[styles.username, { color: theme.colors.text }]}>
-                {author?.display_name || author?.username || 'Fan'}
-              </Text>
+        {/* Video Player (no autoplay) */}
+        <VideoPlayer
+          videoUrl={post.media_url}
+          isShort={post.is_short}
+          postId={post.id}
+          onViewCount={handleVideoViewCount}
+          autoPlay={false}
+          containerStyle={styles.videoContainer}
+        />
 
-              {/* 🚀 BADGE LOGIC FOR ALL 5 TYPES */}
+        {/* Video Status Badge (if processing) */}
+        {post.video_status === 'processing' && (
+          <View
+            style={[
+              styles.statusBadge,
+              { backgroundColor: theme.colors.primary + '40' },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name="sync"
+              size={14}
+              color={theme.colors.primary}
+            />
+            <Text style={[styles.statusText, { color: theme.colors.primary }]}>
+              Processing...
+            </Text>
+          </View>
+        )}
 
-              {/* 1. Official Media (BBC, Sky Sports) */}
-              {author?.badge_type === 'official' && (
-                <MaterialCommunityIcons
-                  name="check-decagram"
-                  size={16}
-                  color="#FFD700"
-                  style={{ marginLeft: 4 }}
-                />
-              )}
+        {post.video_status === 'failed' && (
+          <View
+            style={[styles.statusBadge, { backgroundColor: '#FF5252' + '40' }]}
+          >
+            <MaterialCommunityIcons
+              name="alert-circle"
+              size={14}
+              color="#FF5252"
+            />
+            <Text style={[styles.statusText, { color: '#FF5252' }]}>
+              Failed to process
+            </Text>
+          </View>
+        )}
 
-              {/* 2. Verified Personality (Pro Athletes, Journalists) */}
-              {author?.badge_type === 'verified' && (
-                <MaterialCommunityIcons
-                  name="check-decagram"
-                  size={16}
-                  color="#1DA1F2"
-                  style={{ marginLeft: 4 }}
-                />
-              )}
+        {/* Caption */}
+        {post.content && (
+          <View style={styles.contentSection}>
+            <Autolink
+              text={post.content}
+              style={[styles.caption, { color: theme.colors.text }]}
+              linkStyle={{ color: theme.colors.primary, fontWeight: '600' }}
+              onPress={url => Linking.openURL(url)}
+            />
+          </View>
+        )}
 
-              {/* 3. Pioneer Member (Early Adopters in Eldoret/Global) */}
-              {author?.badge_type === 'pioneer' && (
-                <MaterialCommunityIcons
-                  name="rocket-launch"
-                  size={15}
-                  color="#BB86FC"
-                  style={{ marginLeft: 4 }}
-                />
-              )}
-
-              {/* 4. Verified Superfan (High Engagement) */}
-              {author?.badge_type === 'superfan' && (
-                <MaterialCommunityIcons
-                  name="shield-check"
-                  size={16}
-                  color="#FF4500"
-                  style={{ marginLeft: 4 }}
-                />
-              )}
-
-              {/* 5. None (Explicitly handle 'none' if needed, or just let it fall through) */}
-              {author?.badge_type === 'none' && null}
-            </View>
-
-            {/* Sub-text Logic */}
-            {support ? (
-              <Text
-                style={[styles.supportStatus, { color: theme.colors.subText }]}
+        {/* League & Team Info */}
+        {(post.league_details || post.team_details) && (
+          <View style={styles.leagueTeamInfo}>
+            {post.league_details && (
+              <View
+                style={[
+                  styles.leagueBadge,
+                  { backgroundColor: theme.colors.primary + '20' },
+                ]}
               >
-                Supports{' '}
+                <Text
+                  style={[styles.leagueName, { color: theme.colors.primary }]}
+                >
+                  {post.league_details.name}
+                </Text>
+              </View>
+            )}
+
+            {post.team_details && (
+              <View
+                style={[
+                  styles.teamBadge,
+                  { backgroundColor: theme.colors.primary + '20' },
+                ]}
+              >
+                {post.team_details.logo && (
+                  <Image
+                    source={{ uri: post.team_details.logo }}
+                    style={styles.teamLogo}
+                  />
+                )}
                 <Text
                   style={[styles.teamName, { color: theme.colors.primary }]}
                 >
-                  {support?.team_name}
+                  {post.team_details.name}
                 </Text>
-              </Text>
-            ) : (
-              <Text
-                style={[styles.supportStatus, { color: theme.colors.subText }]}
-              >
-                {/* If not a fan, show their professional role */}
-                {author?.account_type === 'news'
-                  ? 'News / Media'
-                  : author?.account_type === 'organization'
-                  ? 'Official Organization'
-                  : 'Sports Fan'}
-              </Text>
+              </View>
             )}
           </View>
-        </TouchableOpacity>
-
-        {!isOwner && (
-          <TouchableOpacity
-            style={[
-              styles.smallFollowBtn,
-              { backgroundColor: theme.colors.primary },
-              isFollowing && [
-                styles.smallFollowingBtn,
-                {
-                  borderColor: theme.colors.border,
-                  backgroundColor: 'transparent',
-                },
-              ],
-            ]}
-            onPress={handleFollowToggle}
-            disabled={followLoading}
-          >
-            {followLoading ? (
-              <ActivityIndicator
-                size="small"
-                color={
-                  isFollowing ? theme.colors.primary : theme.colors.buttonText
-                }
-              />
-            ) : (
-              <Text
-                style={[
-                  styles.smallFollowText,
-                  {
-                    color: isFollowing
-                      ? theme.colors.subText
-                      : theme.colors.buttonText,
-                  },
-                  isFollowing && styles.smallFollowingText,
-                ]}
-              >
-                {isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            )}
-          </TouchableOpacity>
         )}
-      </View>
 
-      <View style={styles.contentBody}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => navigation.navigate('PostDetail', { postId: post.id })}
-          style={styles.contentBody}
+        {/* Engagement Metrics */}
+        <View
+          style={[
+            styles.metricsContainer,
+            { borderTopColor: theme.colors.border },
+          ]}
         >
-          {post.content ? (
-            <View pointerEvents="box-none">
-              <Autolink
-                text={
-                  shouldTruncate && !isExpanded
-                    ? `${post.content.substring(0, TEXT_LIMIT)}...`
-                    : post.content
-                }
-                style={[styles.postText, { color: theme.colors.text }]}
-                linkStyle={[styles.linkText, { color: theme.colors.primary }]}
-                mention="twitter"
-                hashtag="instagram"
-                url={true}
-                onPress={(url, match) => {
-                  if (match.getType() === 'mention') {
-                    const cleanUsername = match
-                      .getAnchorText()
-                      .replace('@', '');
-                    navigation.navigate('Profile', { username: cleanUsername });
-                  } else if (match.getType() === 'hashtag') {
-                    const tag = match.getAnchorText();
-                    navigation.navigate('Search', { query: tag });
-                  } else {
-                    Linking.openURL(url);
-                  }
-                }}
-              />
+          <Text style={[styles.metricText, { color: theme.colors.subText }]}>
+            {post.view_count || 0} views
+          </Text>
+          <Text style={[styles.metricText, { color: theme.colors.subText }]}>
+            {likesCount} likes
+          </Text>
+          <Text style={[styles.metricText, { color: theme.colors.subText }]}>
+            {post.comments_count || 0} comments
+          </Text>
+        </View>
 
-              {/* 🚀 "SEE MORE" TOGGLE BUTTON */}
-              {shouldTruncate && (
-                <TouchableOpacity
-                  onPress={() => setIsExpanded(!isExpanded)}
-                  style={{ marginTop: 6, alignSelf: 'flex-start' }}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={{
-                      color: theme.colors.primary,
-                      fontWeight: 'bold',
-                      fontSize: 13,
-                    }}
-                  >
-                    {isExpanded ? 'Show Less' : 'See More'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : null}
-        </TouchableOpacity>
-        {originalData && (
-          <TouchableOpacity
-            style={styles.quoteBox}
-            activeOpacity={0.8}
-            onPress={() =>
-              navigation.navigate('PostDetail', { postId: originalData.id })
-            }
-          >
-            <View style={styles.quoteHeader}>
-              {/* 1. Author Avatar with fallback */}
-              <Image
-                source={{
-                  uri:
-                    originalData.author_details?.profile_pic ||
-                    `https://ui-avatars.com/api/?name=${originalData.author_details?.username}`,
-                }}
-                style={styles.miniAvatar}
-              />
-
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {/* 2. Quoted Author Name */}
-                  <Text
-                    style={[styles.quoteUsername, { color: theme.colors.text }]}
-                    numberOfLines={1}
-                  >
-                    {originalData.author_details?.display_name ||
-                      originalData.author_details?.username}
-                  </Text>
-
-                  {/* 3. Badge Logic for all 5 Types */}
-                  {originalData.author_details?.badge_type === 'official' && (
-                    <MaterialCommunityIcons
-                      name="check-decagram"
-                      size={14}
-                      color="#FFD700"
-                      style={{ marginLeft: 3 }}
-                    />
-                  )}
-                  {originalData.author_details?.badge_type === 'verified' && (
-                    <MaterialCommunityIcons
-                      name="check-decagram"
-                      size={14}
-                      color="#1DA1F2"
-                      style={{ marginLeft: 3 }}
-                    />
-                  )}
-                  {originalData.author_details?.badge_type === 'pioneer' && (
-                    <MaterialCommunityIcons
-                      name="rocket-launch"
-                      size={13}
-                      color="#BB86FC"
-                      style={{ marginLeft: 3 }}
-                    />
-                  )}
-                  {originalData.author_details?.badge_type === 'superfan' && (
-                    <MaterialCommunityIcons
-                      name="shield-check"
-                      size={14}
-                      color="#FF4500"
-                      style={{ marginLeft: 3 }}
-                    />
-                  )}
-                </View>
-
-                {/* 4. Support Status vs Role Label */}
-                {originalData.supporting_info?.team_name ? (
-                  <Text
-                    style={[
-                      styles.quoteTeamText,
-                      { color: theme.colors.subText, fontSize: 11 },
-                    ]}
-                  >
-                    Supports{' '}
-                    <Text
-                      style={{ color: theme.colors.primary, fontWeight: '500' }}
-                    >
-                      {originalData.supporting_info.team_name}
-                    </Text>
-                  </Text>
-                ) : (
-                  <Text
-                    style={[
-                      styles.quoteTeamText,
-                      { color: theme.colors.subText, fontSize: 11 },
-                    ]}
-                  >
-                    {originalData.author_details?.account_type === 'news'
-                      ? 'News / Media'
-                      : originalData.author_details?.account_type ===
-                        'organization'
-                      ? 'Official Organization'
-                      : 'Sports Fan'}
-                  </Text>
-                )}
-              </View>
-            </View>
-
-            {/* 5. Content: Truncated to 5 lines for a clean "Preview" feel */}
+        {/* Action Buttons */}
+        <View style={styles.actionsContainer}>
+          <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
+            <MaterialCommunityIcons
+              name={isLiked ? 'heart' : 'heart-outline'}
+              size={20}
+              color={
+                isLiked ? theme.colors.notificationBadge : theme.colors.subText
+              }
+            />
             <Text
               style={[
-                styles.quoteContent,
-                { color: theme.colors.text, marginTop: 4 },
+                styles.actionText,
+                {
+                  color: isLiked
+                    ? theme.colors.notificationBadge
+                    : theme.colors.subText,
+                },
               ]}
-              numberOfLines={5}
-              ellipsizeMode="tail"
             >
-              {originalData.content}
+              {isLiked ? 'Liked' : 'Like'}
             </Text>
-
-            {/* Optional: Small visual hint if text is long */}
-            {originalData.content?.split('\n').length > 5 ||
-            originalData.content?.length > 200 ? (
-              <Text
-                style={{
-                  color: theme.colors.primary,
-                  fontSize: 11,
-                  marginTop: 2,
-                  fontWeight: '600',
-                }}
-              >
-                Read full post...
-              </Text>
-            ) : null}
           </TouchableOpacity>
-        )}
-        {!originalData && post.media_file && (
-          <View style={styles.mediaWrapper}>
-            {post.media_file.endsWith('.mp4') ? (
-              <Video
-                source={getMediaSource(post.media_file)}
-                style={styles.mediaImage}
-                resizeMode="cover"
-                paused={videoPaused}
-                repeat
-              />
-            ) : (
-              <Image
-                source={getMediaSource(post.media_file)}
-                style={styles.mediaImage}
-              />
-            )}
-          </View>
-        )}
+
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => onCommentPress && onCommentPress(post.id)}
+          >
+            <MaterialCommunityIcons
+              name="comment-outline"
+              size={20}
+              color={theme.colors.subText}
+            />
+            <Text style={[styles.actionText, { color: theme.colors.subText }]}>
+              Comment
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+            <MaterialCommunityIcons
+              name="share-outline"
+              size={20}
+              color={theme.colors.subText}
+            />
+            <Text style={[styles.actionText, { color: theme.colors.subText }]}>
+              Share
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Render Image/Text Posts (unchanged) ───────────────────────────
+  return (
+    <View
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Profile', { userId: author?.id })}
+        >
+          <Image source={{ uri: profileImageUri }} style={styles.avatar} />
+        </TouchableOpacity>
+
+        <View style={styles.authorInfo}>
+          <Text style={[styles.username, { color: theme.colors.text }]}>
+            {author?.display_name || author?.username}
+          </Text>
+          {supportInfo && (
+            <Text style={[styles.supportText, { color: theme.colors.primary }]}>
+              Supports {supportInfo.team_name}
+            </Text>
+          )}
+        </View>
+
+        <TouchableOpacity onPress={handleMenuPress}>
+          <MaterialCommunityIcons
+            name="dots-vertical"
+            size={20}
+            color={theme.colors.subText}
+          />
+        </TouchableOpacity>
       </View>
 
-      <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => {
-            const newLiked = !liked;
-            setLiked(newLiked);
-            setLikesCount(prev => (newLiked ? prev + 1 : prev - 1));
-            api.post(`api/posts/${post.id}/like/`).catch(() => {
-              setLiked(!newLiked);
-              setLikesCount(post.likes_count);
-            });
-          }}
-        >
+      {/* Content */}
+      {post.content && (
+        <Autolink
+          text={post.content}
+          style={[styles.caption, { color: theme.colors.text }]}
+          linkStyle={{ color: theme.colors.primary, fontWeight: '600' }}
+          onPress={url => Linking.openURL(url)}
+        />
+      )}
+
+      {/* Image */}
+      {post.media_url && post.post_type === 'image' && (
+        <Image source={{ uri: post.media_url }} style={styles.postImage} />
+      )}
+
+      {/* Actions */}
+      <View style={styles.actionsContainer}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
           <MaterialCommunityIcons
-            name={liked ? 'heart' : 'heart-outline'}
-            size={22}
+            name={isLiked ? 'heart' : 'heart-outline'}
+            size={20}
             color={
-              liked ? theme.colors.notificationBadge : theme.colors.primary
+              isLiked ? theme.colors.notificationBadge : theme.colors.subText
             }
           />
-          <Text style={[styles.actionText, { color: theme.colors.subText }]}>
+          <Text
+            style={[
+              styles.actionText,
+              {
+                color: isLiked
+                  ? theme.colors.notificationBadge
+                  : theme.colors.subText,
+              },
+            ]}
+          >
             {likesCount}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionBtn} onPress={onCommentPress}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => onCommentPress && onCommentPress(post.id)}
+        >
           <MaterialCommunityIcons
-            name="comment-text-outline"
+            name="comment-outline"
             size={20}
-            color={theme.colors.primary}
+            color={theme.colors.subText}
           />
           <Text style={[styles.actionText, { color: theme.colors.subText }]}>
             {post.comments_count || 0}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionBtn} onPress={handleRepostPress}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
           <MaterialCommunityIcons
-            name="repeat"
-            size={22}
-            color={isSimpleRepost ? '#10B981' : theme.colors.primary}
+            name="share-outline"
+            size={20}
+            color={theme.colors.subText}
           />
           <Text style={[styles.actionText, { color: theme.colors.subText }]}>
-            {post.reposts_count || 0}
+            {post.shares_count || 0}
           </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionBtn}>
-          <MaterialCommunityIcons
-            name="share-variant-outline"
-            size={20}
-            color={theme.colors.primary}
-          />
         </TouchableOpacity>
       </View>
     </View>
@@ -701,126 +455,132 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
 };
 
 const styles = StyleSheet.create({
-  card: {
-    paddingVertical: 12,
-    borderBottomWidth: 6,
-    borderBottomColor: 'transparent', // Will be overridden in JSX if needed
-    marginBottom: 8,
-    marginHorizontal: 8,
-    borderWidth: 1,
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+  container: {
+    paddingVertical: 16,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  repostIndicator: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 45,
-    marginBottom: 8,
-  },
-  repostUserText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  topHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
-  leagueTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  leagueHeaderText: {
-    fontSize: 10,
-    fontWeight: '800',
-    marginLeft: 4,
-    textTransform: 'uppercase',
-  },
-  rightActions: { flexDirection: 'row', alignItems: 'center' },
-  menuIconButton: { paddingLeft: 10 },
-  timestamp: { fontSize: 11, marginRight: 5 },
-  authorSection: {
-    flexDirection: 'row',
-    paddingHorizontal: 15,
-    alignItems: 'center',
-    marginBottom: 5,
-    justifyContent: 'space-between',
-  },
   avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E293B',
   },
-  nameColumn: { marginLeft: 12 },
-  username: { fontWeight: 'bold', fontSize: 16 },
-  supportStatus: { fontSize: 12, marginTop: 1 },
-  teamName: { fontWeight: '600' },
-  smallFollowBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 15,
-    minWidth: 70,
-    alignItems: 'center',
+  authorInfo: {
+    flex: 1,
+    marginLeft: 10,
   },
-  smallFollowingBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
+  username: {
+    fontWeight: '700',
+    fontSize: 14,
+    marginBottom: 2,
   },
-  smallFollowText: { fontSize: 11, fontWeight: 'bold' },
-  smallFollowingText: {},
-  contentBody: { paddingHorizontal: 15, marginBottom: 10 },
-  postText: {
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 10,
+  supportText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
-  // 🚀 New Link Style
-  linkText: { fontWeight: 'bold' },
-  quoteBox: {
-    marginTop: 5,
-    borderWidth: 1,
+  contentSection: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  caption: {
+    paddingHorizontal: 16,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  postImage: {
+    width: '100%',
+    height: 300,
+    resizeMode: 'cover',
+    marginBottom: 12,
+  },
+  videoContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
     borderRadius: 12,
-    padding: 12,
-  },
-  quoteHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  miniAvatar: { width: 18, height: 18, borderRadius: 9, marginRight: 8 },
-  quoteUsername: { fontWeight: 'bold', fontSize: 13 },
-  quoteContent: { fontSize: 14, lineHeight: 20 },
-  mediaWrapper: {
-    width: width - 30,
-    height: 240,
-    alignSelf: 'center',
-    borderRadius: 16,
     overflow: 'hidden',
-    marginTop: 10,
   },
-  mediaImage: { width: '100%', height: '100%' },
-  footer: {
+  statusBadge: {
     flexDirection: 'row',
-    paddingHorizontal: 25,
-    marginTop: 16,
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    borderTopWidth: 0.5,
+    alignItems: 'center',
+    marginHorizontal: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginBottom: 8,
+    gap: 6,
   },
-  actionBtn: { flexDirection: 'row', alignItems: 'center' },
-  actionText: {
-    marginLeft: 8,
-    fontSize: 13,
+  statusText: {
+    fontSize: 12,
     fontWeight: '600',
   },
-  quoteTeamText: { color: '#64748B', fontSize: 10, marginTop: -2 },
+  leagueTeamInfo: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 8,
+    marginBottom: 12,
+  },
+  leagueBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  leagueName: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  teamBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 6,
+  },
+  teamLogo: {
+    width: 14,
+    height: 14,
+    borderRadius: 2,
+  },
+  teamName: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  metricsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 0.5,
+    marginVertical: 8,
+    gap: 20,
+  },
+  metricText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  actionText: {
+    fontWeight: '600',
+    fontSize: 12,
+  },
 });
 
 export default PostCard;

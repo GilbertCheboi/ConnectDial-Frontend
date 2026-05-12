@@ -1,24 +1,43 @@
 /**
  * src/api/auth.js
- * Clean, Fixed & Complete Auth API
+ * Integrated & Optimized Version
  */
+
 import api from './client';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ════════════════════════════════════════════════════════════════════════════
-// LOGIN WITH OTP
-// ════════════════════════════════════════════════════════════════════════════
-export const sendLoginOTP = async (username, password) => {
-  const { data } = await api.post('auth/login/otp/', { username, password });
+/**
+ * ── SESSION PERSISTENCE ──────────────────────────────────────────────
+ * Uses the API client's token management while maintaining AsyncStorage
+ * for backward compatibility and user data.
+ */
+const persistSession = async (key, user) => {
+  // Update the API client's internal state (SecureStore + Axios Headers)
+  if (api.setTokens) {
+    await api.setTokens(key, null);
+  }
+
+  // Maintain the legacy AsyncStorage keys
+  await AsyncStorage.multiSet([
+    ['authToken', key],
+    ['user_data', JSON.stringify(user || {})],
+  ]);
+};
+
+// LOGIN
+export const loginUser = async (username, password) => {
+  const { data } = await api.post('auth/login/', { username, password });
+  await persistSession(data.key, data.user);
   return data;
 };
 
+// OTP
 export const sendOTP = async (identifier, purpose = 'login') => {
-  const { data } = await api.post('auth/otp/send/', {
-    email: identifier,
-    purpose
-  });
+  const { data } = await api.post('auth/otp/send/', { identifier, purpose });
   return data;
 };
 
@@ -26,79 +45,96 @@ export const verifyOTP = async (identifier, otp, purpose = 'login') => {
   const { data } = await api.post('auth/otp/verify/', {
     identifier,
     otp,
-    purpose
+    purpose,
   });
+  if (purpose === 'login' && data.key) {
+    await persistSession(data.key, data.user);
+  }
   return data;
 };
 
-// Aliases for LoginOTPScreen
-export const resendLoginOTP = (identifier) => sendOTP(identifier, 'login');
-export const verifyLoginOTP = (identifier, otp) => verifyOTP(identifier, otp, 'login');
+export const resendLoginOTP = identifier => sendOTP(identifier, 'login');
+export const verifyLoginOTP = (identifier, otp) =>
+  verifyOTP(identifier, otp, 'login');
 
-export const loginUser = async (username, password) => {
-  const { data } = await api.post('auth/login/', { username, password });
-  return data;
-};
-
-// ════════════════════════════════════════════════════════════════════════════
 // REGISTER
-// ════════════════════════════════════════════════════════════════════════════
-export const registerUser = async ({ username, email, password1, password2 }) => {
+export const registerUser = async ({
+  username,
+  email,
+  password1,
+  password2,
+}) => {
   const { data } = await api.post('auth/register/', {
     username,
     email,
     password1,
-    password2
+    password2,
   });
+  if (data.token || data.key) {
+    await persistSession(data.token || data.key, data.user);
+  }
   return data;
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// GOOGLE SIGN-IN
-// ════════════════════════════════════════════════════════════════════════════
+// ── GOOGLE ───────────────────────────────────────────────────────────────────
+
 export const configureGoogleSignin = () => {
   GoogleSignin.configure({
-    webClientId: '849401797302-h2a3b2jhvru6fthok0rbb9b66mamhcce.apps.googleusercontent.com',
-    offlineAccess: true,
+    webClientId:
+      '597689072930-lf6o7j50lqv8ro2qc4lluq06gribo16h.apps.googleusercontent.com',
+    offlineAccess: false,
+    forceCodeForRefreshToken: false,
   });
 };
 
 export const googleLogin = async () => {
   try {
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    await GoogleSignin.signOut();
+
+    try {
+      await GoogleSignin.signOut();
+    } catch (_) {}
 
     const userInfo = await GoogleSignin.signIn();
-    const idToken = userInfo?.data?.idToken;
 
-    if (!idToken) throw new Error('Google sign-in did not return an ID token.');
+    // Support for multiple library versions (v6-v13+)
+    let idToken = null;
+    if (userInfo?.type === 'success') {
+      idToken = userInfo.data?.idToken;
+    } else if (userInfo?.idToken) {
+      idToken = userInfo.idToken;
+    } else if (userInfo?.data?.idToken) {
+      idToken = userInfo.data.idToken;
+    }
 
-    const { data } = await api.post('auth/social/google/', { id_token: idToken });
+    if (!idToken) {
+      throw new Error('No idToken received from Google.');
+    }
 
-    console.log('✅ FULL GOOGLE BACKEND RESPONSE:', JSON.stringify(data, null, 2));
+    const { data } = await api.post('auth/social/google/', {
+      id_token: idToken,
+    });
 
-    const token = data.token || data.key;
-    if (!token) throw new Error('No token received from server');
+    if (!data.key) {
+      throw new Error('Backend did not return auth token.');
+    }
 
-    // Persist token returned from backend
-    await AsyncStorage.setItem('authToken', token);
-    await AsyncStorage.setItem('user', JSON.stringify(data.user || {}));
-
+    await persistSession(data.key, data.user);
     return {
-      token: token,
+      token: data.key,
       user: data.user,
       isNewUser: data.is_new_user ?? false,
     };
   } catch (error) {
-    console.error('❌ Google Login Error:', error);
+    if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      throw error;
+    }
     throw error;
   }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// FORGOT PASSWORD
-// ════════════════════════════════════════════════════════════════════════════
-export const requestPasswordReset = async (email) => {
+// PASSWORD
+export const requestPasswordReset = async email => {
   const { data } = await api.post('auth/password/forgot/', { email });
   return data;
 };
@@ -120,49 +156,49 @@ export const resetPassword = async (resetToken, newPassword) => {
   return data;
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// CHANGE PASSWORD
-// ════════════════════════════════════════════════════════════════════════════
 export const changePassword = async (oldPassword, newPassword) => {
   const { data } = await api.post('auth/password/change/', {
     old_password: oldPassword,
     new_password: newPassword,
   });
+  if (data.key) await persistSession(data.key, data.user);
   return data;
 };
 
-// ════════════════════════════════════════════════════════════════════════════
 // EMAIL VERIFICATION
-// ════════════════════════════════════════════════════════════════════════════
 export const sendEmailVerification = async () => {
   const { data } = await api.post('auth/email/send-verification/');
   return data;
 };
 
-export const verifyEmail = async (otp) => {
+export const verifyEmail = async otp => {
   const { data } = await api.post('auth/email/verify/', { otp });
+  if (data.key) await persistSession(data.key, data.user);
   return data;
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2FA — TOTP
-// ════════════════════════════════════════════════════════════════════════════
+// 2FA
 export const setup2FA = async () => {
   const { data } = await api.post('auth/2fa/setup/');
   return data;
 };
 
-export const verify2FASetup = async (totpCode) => {
-  const { data } = await api.post('auth/2fa/verify-setup/', { totp_code: totpCode });
+export const verify2FASetup = async totpCode => {
+  const { data } = await api.post('auth/2fa/verify-setup/', {
+    totp_code: totpCode,
+  });
+  if (data.key) await persistSession(data.key, data.user);
   return data;
 };
 
-export const validate2FA = async (totpCode) => {
-  const { data } = await api.post('auth/2fa/validate/', { totp_code: totpCode });
+export const validate2FA = async totpCode => {
+  const { data } = await api.post('auth/2fa/validate/', {
+    totp_code: totpCode,
+  });
   return data;
 };
 
-export const disable2FA = async (totpCode) => {
+export const disable2FA = async totpCode => {
   const { data } = await api.post('auth/2fa/disable/', { totp_code: totpCode });
   return data;
 };
@@ -172,31 +208,32 @@ export const get2FAStatus = async () => {
   return data;
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// TOKEN CHECK
-// ════════════════════════════════════════════════════════════════════════════
+// TOKEN
 export const checkToken = async () => {
   const { data } = await api.get('auth/token/check/');
   return data;
 };
 
-// ════════════════════════════════════════════════════════════════════════════
 // LOGOUT
-// ════════════════════════════════════════════════════════════════════════════
 export const logoutUser = async () => {
   try {
-    const { data } = await api.post('auth/logout-custom/');
-    await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
-    return data;
+    await api.post('auth/logout/');
   } catch (error) {
-    await AsyncStorage.multiRemove(['access', 'refresh', 'user']);
-    throw error;
+    console.warn('Server logout failed:', error.message);
+  } finally {
+    // Clear tokens from the API client (SecureStore)
+    if (api.clearTokens) {
+      await api.clearTokens();
+    }
+    // Clear local app data
+    await AsyncStorage.multiRemove(['authToken', 'user_data', 'is_new_user']);
+    try {
+      await GoogleSignin.signOut();
+    } catch (_) {}
   }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
 // PROFILE & SOCIAL
-// ════════════════════════════════════════════════════════════════════════════
 export const getProfile = async (params = {}) => {
   const { data } = await api.get('auth/update/', { params });
   return data;
@@ -207,17 +244,17 @@ export const updateProfile = async (profileData, params = {}) => {
   return data;
 };
 
-export const searchProfiles = async (query) => {
+export const searchProfiles = async query => {
   const { data } = await api.get('auth/search/', { params: { search: query } });
   return data;
 };
 
-export const toggleFollow = async (userId) => {
+export const toggleFollow = async userId => {
   const { data } = await api.post(`auth/users/${userId}/toggle-follow/`);
   return data;
 };
 
-export const completeOnboarding = async (onboardingData) => {
+export const completeOnboarding = async onboardingData => {
   const { data } = await api.post('auth/onboarding/', onboardingData);
   return data;
 };

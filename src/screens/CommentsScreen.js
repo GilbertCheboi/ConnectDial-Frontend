@@ -149,7 +149,7 @@ export default function CommentsScreen({ route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, paddingTop: 40 },
   centered: { flex: 1, justifyContent: 'center' },
   inputRow: {
     flexDirection: 'row',
