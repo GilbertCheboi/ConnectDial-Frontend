@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     minHeight: '100%',
-    paddingTop: 15,
+    paddingTop: 64,
     paddingBottom: 120,
   },
 });

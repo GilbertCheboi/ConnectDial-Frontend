@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import api from '../api/client';
 import { ThemeContext } from '../store/themeStore';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import CommentItem from '../components/CommentItem';
 
 export default function CommentsScreen({ route }) {
@@ -22,6 +21,8 @@ export default function CommentsScreen({ route }) {
   const [postAuthorId, setPostAuthorId] = useState(null);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState(null);
   const [editingComment, setEditingComment] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { theme } = useContext(ThemeContext);
@@ -30,16 +31,58 @@ export default function CommentsScreen({ route }) {
     fetchComments();
   }, [postId]);
 
+  /**
+   * Fetch comments — handles both:
+   *   • Cursor-paginated: { next, previous, results: [] }
+   *   • Plain array: []
+   */
   const fetchComments = async () => {
+    setLoading(true);
     try {
       const response = await api.get(`api/posts/${postId}/comments/`);
-      setComments(response.data);
-      if (response.data.length > 0)
-        setPostAuthorId(response.data[0].post_author_id);
+      const { data } = response;
+
+      if (Array.isArray(data)) {
+        // Plain array response
+        setComments(data);
+        setNextCursor(null);
+        if (data.length > 0) setPostAuthorId(data[0].post_author_id);
+      } else {
+        // Paginated response { results, next, previous }
+        const results = data.results || [];
+        setComments(results);
+        setNextCursor(data.next || null);
+        if (results.length > 0) setPostAuthorId(results[0].post_author_id);
+      }
     } catch (err) {
-      console.log(err);
+      console.log('fetchComments error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Load next page when user scrolls to the bottom
+   */
+  const fetchMoreComments = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const response = await api.get(nextCursor); // nextCursor is a full URL
+      const { data } = response;
+
+      if (Array.isArray(data)) {
+        setComments(prev => [...prev, ...data]);
+        setNextCursor(null);
+      } else {
+        const results = data.results || [];
+        setComments(prev => [...prev, ...results]);
+        setNextCursor(data.next || null);
+      }
+    } catch (err) {
+      console.log('fetchMoreComments error:', err);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -48,6 +91,7 @@ export default function CommentsScreen({ route }) {
     setIsSubmitting(true);
     try {
       if (editingComment) {
+        // Edit existing comment
         const response = await api.patch(`api/comments/${editingComment.id}/`, {
           content: newComment,
         });
@@ -56,25 +100,31 @@ export default function CommentsScreen({ route }) {
         );
         setEditingComment(null);
       } else {
+        // Add new comment
         const response = await api.post(`api/posts/${postId}/comments/`, {
           content: newComment,
           post: postId,
         });
-        setComments(prev => [response.data, ...prev]);
+        // response.data is a single comment object — prepend it safely
+        setComments(prev => [response.data, ...(Array.isArray(prev) ? prev : [])]);
         if (route.params?.onCommentAdded) route.params.onCommentAdded();
       }
       setNewComment('');
     } catch (err) {
-      Alert.alert('Error', 'Action failed.');
+      console.log('handleSendOrUpdate error:', err);
+      Alert.alert('Error', 'Action failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const cancelEdit = () => {
+    setEditingComment(null);
+    setNewComment('');
+  };
+
   return (
-    <View
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -98,15 +148,41 @@ export default function CommentsScreen({ route }) {
           )}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: theme.colors.subText }]}>
-              No comments yet.
+              No comments yet. Be the first!
             </Text>
           }
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator
+                size="small"
+                color={theme.colors.primary}
+                style={{ marginVertical: 12 }}
+              />
+            ) : null
+          }
+          onEndReached={fetchMoreComments}
+          onEndReachedThreshold={0.4}
         />
       )}
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={90}
       >
+        {/* Edit mode banner */}
+        {editingComment && (
+          <View style={[styles.editBanner, { backgroundColor: theme.colors.surface }]}>
+            <Text style={{ color: theme.colors.subText, flex: 1 }}>
+              Editing comment...
+            </Text>
+            <TouchableOpacity onPress={cancelEdit}>
+              <Text style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View
           style={[
             styles.inputRow,
@@ -137,8 +213,17 @@ export default function CommentsScreen({ route }) {
             {isSubmitting ? (
               <ActivityIndicator size="small" color={theme.colors.primary} />
             ) : (
-              <Text style={[styles.send, { color: theme.colors.primary }]}>
-                Post
+              <Text
+                style={[
+                  styles.send,
+                  {
+                    color: newComment.trim()
+                      ? theme.colors.primary
+                      : theme.colors.subText,
+                  },
+                ]}
+              >
+                {editingComment ? 'Save' : 'Post'}
               </Text>
             )}
           </TouchableOpacity>
@@ -149,21 +234,29 @@ export default function CommentsScreen({ route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 40 },
-  centered: { flex: 1, justifyContent: 'center' },
+  container:  { flex: 1, paddingTop: 40 },
+  centered:   { flex: 1, justifyContent: 'center', alignItems: 'center' },
   inputRow: {
-    flexDirection: 'row',
-    padding: 12,
-    alignItems: 'center',
+    flexDirection:  'row',
+    padding:        12,
+    alignItems:     'center',
     borderTopWidth: 1,
   },
   input: {
-    flex: 1,
-    borderRadius: 20,
+    flex:             1,
+    borderRadius:     20,
     paddingHorizontal: 15,
-    paddingVertical: 8,
-    marginRight: 10,
+    paddingVertical:  8,
+    marginRight:      10,
   },
-  send: { fontWeight: 'bold', fontSize: 16 },
-  empty: { textAlign: 'center', marginTop: 40 },
+  send:      { fontWeight: 'bold', fontSize: 16 },
+  empty:     { textAlign: 'center', marginTop: 40 },
+  editBanner: {
+    flexDirection:    'row',
+    alignItems:       'center',
+    paddingHorizontal: 16,
+    paddingVertical:  8,
+    borderTopWidth:   1,
+    borderTopColor:   '#eee',
+  },
 });

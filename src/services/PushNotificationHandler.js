@@ -6,9 +6,14 @@
 
 import messaging from '@react-native-firebase/messaging';
 import { Platform, Vibration } from 'react-native';
-import RNSound from 'react-native-sound';
 
-RNSound.setCategory('Playback');
+let RNSound = null;
+try {
+  RNSound = require('react-native-sound');
+  RNSound.setCategory('Playback');
+} catch (e) {
+  console.warn('⚠️ react-native-sound not available:', e.message);
+}
 
 let notificationSound = null;
 
@@ -16,6 +21,7 @@ let notificationSound = null;
  * Initialize notification sound
  */
 export const initializeSound = () => {
+  if (!RNSound) return;
   try {
     notificationSound = new RNSound(
       'notification.mp3',
@@ -36,6 +42,7 @@ export const initializeSound = () => {
 };
 
 const loadSystemSound = () => {
+  if (!RNSound) return;
   try {
     notificationSound = new RNSound(
       'notification',
@@ -55,6 +62,7 @@ const loadSystemSound = () => {
  * Play notification sound
  */
 export const playNotificationSound = async () => {
+  if (!RNSound) return;
   try {
     if (!notificationSound) {
       initializeSound();
@@ -89,9 +97,9 @@ export const stopNotificationSound = () => {
 const triggerVibration = () => {
   try {
     if (Platform.OS === 'android') {
-      Vibration.vibrate([0, 80, 60, 80]); // Short exciting pattern
+      Vibration.vibrate([0, 80, 60, 80]);
     } else {
-      Vibration.vibrate(400); // iOS
+      Vibration.vibrate(400);
     }
   } catch (error) {
     console.log('Vibration failed:', error);
@@ -121,7 +129,16 @@ export function handleNotificationPress(navigationRef, data) {
 }
 
 /**
- * Setup Message Handlers (Foreground + Background)
+ * Background handler — MUST be at top level (Firebase requirement)
+ */
+messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+  console.log('📬 Background notification received:', remoteMessage);
+  playNotificationSound();
+  triggerVibration();
+});
+
+/**
+ * Setup Message Handlers (Foreground only now)
  */
 export function setupPushMessageHandlers(navigationRef, showToastCallback) {
   const msg = messaging();
@@ -147,16 +164,7 @@ export function setupPushMessageHandlers(navigationRef, showToastCallback) {
     }
   });
 
-  // Background handler (when app is in background)
-  const unsubscribeBackground = messaging().setBackgroundMessageHandler(async (remoteMessage) => {
-    console.log('📬 Background notification received:', remoteMessage);
-    // Sound & vibration will be handled by system notification mostly
-    // But we can try custom handling
-    playNotificationSound();
-    triggerVibration();
-  });
-
-  // Notification opened
+  // Notification opened (app in background, user taps)
   const unsubscribeOpened = msg.onNotificationOpenedApp((remoteMessage) => {
     console.log('👆 Notification opened:', remoteMessage);
     stopNotificationSound();
@@ -165,7 +173,7 @@ export function setupPushMessageHandlers(navigationRef, showToastCallback) {
     }
   });
 
-  // Cold start
+  // Cold start (app was killed, opened via notification)
   msg.getInitialNotification().then((remoteMessage) => {
     if (remoteMessage) {
       console.log('🚀 Cold start notification:', remoteMessage);
@@ -182,7 +190,6 @@ export function setupPushMessageHandlers(navigationRef, showToastCallback) {
 
   return {
     unsubscribeForeground,
-    unsubscribeBackground,
     unsubscribeOpened,
     unsubscribeTokenRefresh,
   };
