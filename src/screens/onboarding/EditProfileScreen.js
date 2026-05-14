@@ -16,16 +16,28 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
+import { ThemeContext } from '../../store/themeStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function EditProfileScreen({ navigation, route }) {
   const { setIsNew } = useContext(AuthContext);
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#162636',
+        text: '#F8FAFC',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+        inputBackground: '#162636',
+      },
+    },
+  };
 
   // --- 1. MODE & ONBOARDING DATA ---
   const mode = route.params?.mode || 'edit';
   const isOnboarding = mode === 'onboarding';
-  const accountType = route.params?.accountType;
-  const selectedLeagues = route.params?.selectedLeagues || [];
 
   // --- 2. STATE ---
   const [displayName, setDisplayName] = useState('');
@@ -151,16 +163,16 @@ export default function EditProfileScreen({ navigation, route }) {
 
   if (fetching) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1E90FF" />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0D1F2D' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { backgroundColor: theme.colors.background }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topNav}>
@@ -172,14 +184,14 @@ export default function EditProfileScreen({ navigation, route }) {
               <MaterialCommunityIcons name="close" size={28} color="#fff" />
             </TouchableOpacity>
           )}
-          <Text style={styles.headerTitle}>
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]}> 
             {isOnboarding ? 'Finish Setup' : 'Edit Profile'}
           </Text>
           <TouchableOpacity onPress={handleProfileSubmit} disabled={loading}>
             {loading ? (
-              <ActivityIndicator color="#1E90FF" />
+              <ActivityIndicator color={theme.colors.primary} />
             ) : (
-              <Text style={styles.saveText}>Save</Text>
+              <Text style={[styles.saveText, { color: theme.colors.primary }]}>Save</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -188,7 +200,7 @@ export default function EditProfileScreen({ navigation, route }) {
         <TouchableOpacity
           onPress={() => pickImage('banner')}
           activeOpacity={0.9}
-          style={styles.bannerContainer}
+          style={[styles.bannerContainer, { backgroundColor: theme.colors.surface }]}
         >
           <Image
             source={
@@ -199,10 +211,10 @@ export default function EditProfileScreen({ navigation, route }) {
                 : null
             }
             style={styles.bannerImage}
-            backgroundColor="#1A2A3D"
+            backgroundColor={theme.colors.surface}
           />
-          <View style={styles.bannerOverlay}>
-            <MaterialCommunityIcons name="camera" size={24} color="#fff" />
+          <View style={[styles.bannerOverlay, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+            <MaterialCommunityIcons name="camera" size={24} color={theme.colors.buttonText} />
           </View>
         </TouchableOpacity>
 
@@ -222,13 +234,13 @@ export default function EditProfileScreen({ navigation, route }) {
                   : null
               }
               style={styles.avatarImage}
-              backgroundColor="#1E90FF"
+              backgroundColor={theme.colors.primary}
             />
-            <View style={styles.cameraBadge}>
+            <View style={[styles.cameraBadge, { backgroundColor: theme.colors.primary }]}> 
               <MaterialCommunityIcons
                 name="camera-plus"
                 size={16}
-                color="#fff"
+                color={theme.colors.buttonText}
               />
             </View>
           </TouchableOpacity>
@@ -236,22 +248,22 @@ export default function EditProfileScreen({ navigation, route }) {
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>DISPLAY NAME</Text>
+            <Text style={[styles.label, { color: theme.colors.primary }]}>DISPLAY NAME</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: theme.colors.inputBackground, color: theme.colors.text }]}
               placeholder="Your name"
-              placeholderTextColor="#475569"
+              placeholderTextColor={theme.colors.subText}
               value={displayName}
               onChangeText={setDisplayName}
             />
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>BIO</Text>
+            <Text style={[styles.label, { color: theme.colors.primary }]}>BIO</Text>
             <TextInput
-              style={[styles.input, styles.bioInput]}
+              style={[styles.input, styles.bioInput, { backgroundColor: theme.colors.inputBackground, color: theme.colors.text }]}
               placeholder="Tell us about yourself..."
-              placeholderTextColor="#475569"
+              placeholderTextColor={theme.colors.subText}
               value={bio}
               onChangeText={setBio}
               multiline
@@ -266,7 +278,7 @@ export default function EditProfileScreen({ navigation, route }) {
                 setIsNew(false);
               }}
             >
-              <Text style={styles.skipText}>Skip for now</Text>
+              <Text style={[styles.skipText, { color: theme.colors.subText }]}>Skip for now</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -278,7 +290,6 @@ export default function EditProfileScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#0D1F2D',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -289,8 +300,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  saveText: { color: '#1E90FF', fontSize: 16, fontWeight: 'bold' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold' },
+  saveText: { fontSize: 16, fontWeight: 'bold' },
   iconBtn: { padding: 5 },
   bannerContainer: { width: '100%', height: 160, position: 'relative' },
   bannerImage: { width: '100%', height: '100%', resizeMode: 'cover' },
@@ -298,42 +309,37 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 10,
     right: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     padding: 8,
     borderRadius: 20,
   },
   avatarWrapper: { alignItems: 'center', marginTop: -50 },
+  avatarBtn: { alignItems: 'center', justifyContent: 'center' },
   avatarImage: {
     width: 100,
     height: 100,
     borderRadius: 50,
     borderWidth: 4,
-    borderColor: '#0D1F2D',
   },
   cameraBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#1E90FF',
     padding: 6,
     borderRadius: 15,
   },
   form: { paddingHorizontal: 25, marginTop: 30 },
   inputGroup: { marginBottom: 25 },
   label: {
-    color: '#1E90FF',
     fontSize: 11,
     fontWeight: '900',
     marginBottom: 10,
   },
   input: {
-    backgroundColor: '#162636',
     borderRadius: 12,
     padding: 15,
-    color: '#fff',
     fontSize: 16,
   },
   bioInput: { height: 100, textAlignVertical: 'top' },
   skipBtn: { marginTop: 10, alignSelf: 'center' },
-  skipText: { color: '#64748B', fontWeight: '600' },
+  skipText: { fontWeight: '600' },
 });

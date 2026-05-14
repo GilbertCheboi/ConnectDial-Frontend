@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
   View,
   FlatList,
@@ -18,9 +18,25 @@ import { useRoute } from '@react-navigation/native';
 import api from '../api/client';
 import PostCard from '../components/PostCard';
 import CommentItem from '../components/CommentItem';
+import { ThemeContext } from '../store/themeStore';
 
 export default function PostDetailScreen() {
   const route = useRoute();
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#0D1F2D',
+        card: '#112634',
+        text: '#F8FAFC',
+        subText: '#94A3B8',
+        border: '#1E293B',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+        inputBackground: '#112634',
+      },
+    },
+  };
 
   const postId = route.params?.postId || route.params?.id;
 
@@ -153,22 +169,22 @@ export default function PostDetailScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1E90FF" />
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   if (!post) {
     return (
-      <View style={styles.centered}>
-        <Text style={{ color: '#fff' }}>Post not found.</Text>
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <Text style={{ color: theme.colors.text }}>Post not found.</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -196,22 +212,22 @@ export default function PostDetailScreen() {
               <MaterialCommunityIcons
                 name="comment-outline"
                 size={60}
-                color="#64748B"
+                color={theme.colors.secondary}
               />
-              <Text style={styles.emptyText}>No comments yet.</Text>
-              <Text style={styles.emptySubtext}>Be the first to comment.</Text>
+              <Text style={[styles.emptyText, { color: theme.colors.text }]}>No comments yet.</Text>
+              <Text style={[styles.emptySubtext, { color: theme.colors.subText }]}>Be the first to comment.</Text>
             </View>
           }
           contentContainerStyle={{ paddingBottom: 120 }}
         />
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { backgroundColor: theme.colors.card, borderTopColor: theme.colors.border }]}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.colors.inputBackground, color: theme.colors.text }]}
             value={newComment}
             onChangeText={setNewComment}
             placeholder="Write a comment..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.colors.subText}
             multiline
           />
 
@@ -220,13 +236,13 @@ export default function PostDetailScreen() {
             disabled={isSubmitting}
             style={[
               styles.sendBtn,
-              { opacity: isSubmitting || !newComment.trim() ? 0.5 : 1 },
+              { backgroundColor: theme.colors.primary, opacity: isSubmitting || !newComment.trim() ? 0.5 : 1 },
             ]}
           >
             {isSubmitting ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={theme.colors.buttonText} />
             ) : (
-              <MaterialCommunityIcons name="send" size={22} color="#fff" />
+              <MaterialCommunityIcons name="send" size={22} color={theme.colors.buttonText} />
             )}
           </TouchableOpacity>
         </View>
@@ -238,26 +254,22 @@ export default function PostDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D1F2D',
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0D1F2D',
   },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 40,
   },
   emptyText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '700',
     marginTop: 12,
   },
   emptySubtext: {
-    color: '#94A3B8',
     marginTop: 6,
   },
   footer: {
@@ -268,14 +280,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#112634',
     borderTopWidth: 1,
-    borderTopColor: '#1E293B',
   },
   input: {
     flex: 1,
-    backgroundColor: '#0D1F2D',
-    color: '#fff',
     borderRadius: 25,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -286,7 +294,6 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     marginLeft: 10,
-    backgroundColor: '#1E90FF',
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,9 +14,26 @@ import {
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
+import { ThemeContext } from '../../store/themeStore';
 
 export default function ChooseTeamsScreen({ route, navigation }) {
   const { user } = useContext(AuthContext);
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#1A2A3D',
+        card: '#162535',
+        text: '#F8FAFC',
+        subText: '#94A3B8',
+        border: '#1E293B',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+        inputBackground: '#1A2A3D',
+      },
+    },
+  };
+
   const {
     selectedLeagues,
     accountType = 'fan',
@@ -35,23 +52,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchTeams();
-  }, []);
-
-  useEffect(() => {
-    if (isEditMode && user?.fan_preferences && Object.keys(teamsData).length > 0) {
-      const currentSelected = {};
-      user.fan_preferences.forEach(pref => {
-        if (selectedLeagues.includes(pref.league)) {
-          currentSelected[pref.league] = pref.team;
-        }
-      });
-      setSelectedTeams(currentSelected);
-    }
-  }, [isEditMode, user, teamsData, selectedLeagues]);
-
-  const fetchTeams = async () => {
+  const fetchTeams = useCallback(async () => {
     try {
       const organized = {};
       const requests = selectedLeagues.map(id =>
@@ -69,7 +70,23 @@ export default function ChooseTeamsScreen({ route, navigation }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedLeagues]);
+
+  useEffect(() => {
+    fetchTeams();
+  }, [fetchTeams]);
+
+  useEffect(() => {
+    if (isEditMode && user?.fan_preferences && Object.keys(teamsData).length > 0) {
+      const currentSelected = {};
+      user.fan_preferences.forEach(pref => {
+        if (selectedLeagues.includes(pref.league)) {
+          currentSelected[pref.league] = pref.team;
+        }
+      });
+      setSelectedTeams(currentSelected);
+    }
+  }, [isEditMode, user, teamsData, selectedLeagues]);
 
   const handleFinish = async () => {
     if (Object.keys(selectedTeams).length === 0) {
@@ -81,9 +98,10 @@ export default function ChooseTeamsScreen({ route, navigation }) {
     const payload = {
       account_type: accountType,
       fan_preferences: Object.entries(selectedTeams).map(([lId, tId]) => ({
-        league: parseInt(lId),
+        league: parseInt(lId, 10),
         team: tId,
       })),
+
       append_mode: isAddingNew,
     };
 
@@ -119,8 +137,8 @@ export default function ChooseTeamsScreen({ route, navigation }) {
     return (
       <View style={styles.leagueSection}>
         <View style={styles.leagueHeader}>
-          <MaterialCommunityIcons name="trophy-variant-outline" size={18} color="#1E90FF" />
-          <Text style={styles.leagueTitle}>
+          <MaterialCommunityIcons name="trophy-variant-outline" size={18} color={theme.colors.primary} />
+          <Text style={[styles.leagueTitle, { color: theme.colors.text }]}>
             {teams[0]?.league_name || `League ${leagueId}`}
           </Text>
         </View>
@@ -136,7 +154,11 @@ export default function ChooseTeamsScreen({ route, navigation }) {
             const isSelected = selectedTeams[leagueId] === team.id;
             return (
               <TouchableOpacity
-                style={[styles.teamCard, isSelected && styles.selectedCard]}
+                style={[
+                  styles.teamCard,
+                  { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                  isSelected && [styles.selectedCard, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]
+                ]}
                 onPress={() =>
                   setSelectedTeams(prev => ({ ...prev, [leagueId]: team.id }))
                 }
@@ -145,19 +167,19 @@ export default function ChooseTeamsScreen({ route, navigation }) {
                 {team.logo ? (
                   <Image source={{ uri: team.logo }} style={styles.logo} />
                 ) : (
-                  <View style={styles.placeholderLogo}>
-                    <MaterialCommunityIcons name="shield-outline" size={28} color="#475569" />
+                  <View style={[styles.placeholderLogo, { backgroundColor: theme.colors.secondary }]}>
+                    <MaterialCommunityIcons name="shield-outline" size={28} color={theme.colors.surface} />
                   </View>
                 )}
                 <Text
-                  style={[styles.teamName, isSelected && styles.selectedText]}
+                  style={[styles.teamName, { color: theme.colors.subText }, isSelected && [styles.selectedText, { color: theme.colors.text }]]}
                   numberOfLines={1}
                 >
                   {team.name}
                 </Text>
                 {isSelected && (
                   <View style={styles.checkBadge}>
-                    <MaterialCommunityIcons name="check-circle" size={16} color="#1E90FF" />
+                    <MaterialCommunityIcons name="check-circle" size={16} color={theme.colors.primary} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -170,15 +192,15 @@ export default function ChooseTeamsScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1E90FF" />
-        <Text style={{ color: '#64748B', marginTop: 10 }}>Loading your leagues...</Text>
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ color: theme.colors.secondary, marginTop: 10 }}>Loading your leagues...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       <View style={styles.container}>
         <FlatList
           data={selectedLeagues}
@@ -186,15 +208,15 @@ export default function ChooseTeamsScreen({ route, navigation }) {
           renderItem={renderLeagueRow}
           ListHeaderComponent={
             <View style={styles.header}>
-              <Text style={styles.title}>
+              <Text style={[styles.title, { color: theme.colors.text }]}>
                 {isEditMode ? 'Update Your Teams' : 'Pick Your Teams'}
               </Text>
-              <View style={styles.searchBox}>
-                <MaterialCommunityIcons name="magnify" size={20} color="#64748B" />
+              <View style={[styles.searchBox, { backgroundColor: theme.colors.inputBackground, borderColor: theme.colors.border }]}>
+                <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.secondary} />
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: theme.colors.text }]}
                   placeholder="Search teams..."
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={theme.colors.secondary}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
@@ -205,16 +227,16 @@ export default function ChooseTeamsScreen({ route, navigation }) {
           showsVerticalScrollIndicator={false}
         />
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
           <TouchableOpacity
-            style={[styles.btn, isSubmitting && styles.btnDisabled]}
+            style={[styles.btn, { backgroundColor: theme.colors.primary }, isSubmitting && { backgroundColor: theme.colors.surface }]}
             onPress={handleFinish}
             disabled={isSubmitting}
           >
             {isSubmitting ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={theme.colors.buttonText} />
             ) : (
-              <Text style={styles.btnText}>
+              <Text style={[styles.btnText, { color: theme.colors.buttonText }]}>
                 {isEditMode ? 'Update Preferences' : 'Continue'}
               </Text>
             )}
@@ -226,27 +248,24 @@ export default function ChooseTeamsScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#0D1F2D' },
+  safeArea: { flex: 1 },
   container: { flex: 1 },
   centered: {
     flex: 1,
-    backgroundColor: '#0D1F2D',
     justifyContent: 'center',
     alignItems: 'center',
   },
   header: { padding: 20, paddingTop: 30 },
-  title: { fontSize: 28, fontWeight: '900', color: '#fff', marginBottom: 20 },
+  title: { fontSize: 28, fontWeight: '900', marginBottom: 20 },
   searchBox: {
     flexDirection: 'row',
-    backgroundColor: '#1A2A3D',
     paddingHorizontal: 15,
     borderRadius: 15,
     height: 50,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1E293B',
   },
-  input: { flex: 1, color: '#fff', marginLeft: 10, fontSize: 16 },
+  input: { flex: 1, marginLeft: 10, fontSize: 16 },
   leagueSection: { marginVertical: 15 },
   leagueHeader: {
     flexDirection: 'row',
@@ -255,7 +274,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   leagueTitle: {
-    color: '#fff',
     fontWeight: '800',
     fontSize: 14,
     marginLeft: 8,
@@ -266,45 +284,39 @@ const styles = StyleSheet.create({
   teamCard: {
     width: 110,
     height: 135,
-    backgroundColor: '#1A2A3D',
     marginRight: 12,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 10,
     borderWidth: 1.5,
-    borderColor: '#1E293B',
   },
-  selectedCard: { borderColor: '#1E90FF', backgroundColor: '#162535' },
+  selectedCard: { },
   logo: { width: 50, height: 50, resizeMode: 'contain', marginBottom: 10 },
   placeholderLogo: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#243547',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
   },
-  teamName: { color: '#94A3B8', fontSize: 11, fontWeight: '700', textAlign: 'center' },
-  selectedText: { color: '#fff' },
+  teamName: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  selectedText: { },
   checkBadge: { position: 'absolute', top: 10, right: 10 },
   footer: {
     position: 'absolute',
     bottom: 0,
     width: '100%',
     padding: 20,
-    backgroundColor: '#0D1F2D',
     borderTopWidth: 1,
-    borderColor: '#1E293B',
   },
   btn: {
-    backgroundColor: '#1E90FF',
     height: 55,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnDisabled: { backgroundColor: '#1A2A3D' },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  btnDisabled: { },
+  btnText: { fontWeight: 'bold', fontSize: 16 },
 });
