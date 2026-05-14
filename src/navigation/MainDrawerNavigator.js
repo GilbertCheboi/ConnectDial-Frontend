@@ -74,6 +74,8 @@ const LEAGUE_MAP = {
   10: { name: 'Bundesliga', logo: require('../screens/assets/bundesliga.jpg') },
   11: { name: 'Ligue 1', logo: require('../screens/assets/Ligue1_logo.png') },
   12: { name: 'Afcon', logo: require('../screens/assets/Afcon.png') },
+  13: { name: 'World Cup', logo: require('../screens/assets/World_Cup.png') },
+  14: { name: 'Kenya Premier League', logo: require('../screens/assets/KPL-Logo.png') },
 };
 
 function CustomDrawerContent(props) {
