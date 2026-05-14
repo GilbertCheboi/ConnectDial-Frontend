@@ -1,14 +1,23 @@
 /**
- * FeedList.js - Modern Version with TanStack Query + Auto-Fetch on Entry
- * ─────────────────────────────────────────────────────────────────────────
- * FEATURES:
- * ✅ Auto-fetch posts when screen is focused (first time or return)
- * ✅ Comments integrated with proper navigation
- * ✅ Infinite scroll pagination
- * ✅ Pull-to-refresh
- * ✅ Search functionality
- * ✅ Error handling & retry
- * ─────────────────────────────────────────────────────────────────────────
+ * FeedList.js – ConnectDial (FIXED v2)
+ * ─────────────────────────────────────────────────────────────────────
+ * FIXES in this version:
+ * ✅ FIX #6: Cache-while-revalidate — on app reopen, cached posts show
+ *            instantly while a silent background refetch updates them.
+ *            Previously refetch() on every focus caused a blank flash
+ *            because it triggered isLoading=true and cleared the list.
+ *
+ *   HOW IT WORKS:
+ *   - staleTime: 2 min  → data is "fresh" for 2 min, no refetch needed
+ *   - gcTime: 30 min    → cache kept in memory for 30 min after unmount
+ *   - On focus: if data is stale, TanStack Query revalidates in the
+ *     background (cached data stays visible, no loading spinner)
+ *   - If app was closed/backgrounded > 2 min, focus triggers a silent
+ *     background fetch — user sees old posts while new ones load in
+ *   - Pull-to-refresh still forces an immediate full refetch
+ *
+ * ✅ All previous features preserved
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import React, { useEffect, useState, useContext, useMemo } from 'react';
@@ -58,7 +67,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   }, [searchQuery]);
 
   // ─────────────────────────────────────────────────────────────────────
-  // QUERY KEY (changes when feed, league, or search changes)
+  // QUERY KEY
   // ─────────────────────────────────────────────────────────────────────
   const queryKey = useMemo(
     () => ['posts', feedType, leagueId, debouncedSearch],
@@ -66,7 +75,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   );
 
   // ─────────────────────────────────────────────────────────────────────
-  // INFINITE QUERY - FETCH POSTS WITH PAGINATION
+  // INFINITE QUERY
   // ─────────────────────────────────────────────────────────────────────
   const {
     data,
@@ -80,16 +89,9 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   } = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam = 0 }) => {
-      // Build API URL with filters
       let url = `api/posts/?feed_type=${feedType}&limit=10&offset=${pageParam}`;
-
-      if (debouncedSearch) {
-        url += `&search=${encodeURIComponent(debouncedSearch)}`;
-      }
-      if (leagueId) {
-        url += `&league=${leagueId}`;
-      }
-
+      if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`;
+      if (leagueId) url += `&league=${leagueId}`;
       console.log('🔄 Fetching posts from:', url);
       const response = await api.get(url);
       return response.data;
@@ -100,21 +102,46 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     },
     initialPageParam: 0,
     enabled: !(debouncedSearch === '' && searchQuery !== undefined),
-    staleTime: 1000 * 60 * 3, // 3 minutes
-    gcTime: 1000 * 60 * 10, // 10 minutes (formerly cacheTime)
+
+    // ── FIX #6: Cache-while-revalidate settings ──────────────────────
+    // staleTime: posts are "fresh" for 2 minutes. Within 2 min of the
+    // last fetch, focus will NOT trigger a refetch — user sees cached
+    // data with zero loading. After 2 min (e.g. user was away), the
+    // data is "stale": a background refetch fires but the cached list
+    // stays visible while it loads. No blank flash.
+    staleTime: 1000 * 60 * 2,   // 2 minutes — adjust to taste
+    gcTime:    1000 * 60 * 30,  // 30 minutes in memory after unmount
+                                 // (was 10 — raised so reopening app
+                                 //  after a short break still has cache)
+
+    // refetchOnWindowFocus is web-only but kept for completeness
+    refetchOnWindowFocus: true,
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // AUTO-FETCH WHEN SCREEN COMES INTO FOCUS
+  // FIX #6: Silent background revalidation on screen focus
   // ─────────────────────────────────────────────────────────────────────
+  // We do NOT call refetch() unconditionally — that forces a full reload
+  // and clears the list. Instead we let TanStack Query decide:
+  //   - If data is fresh (< 2 min old): nothing happens, cache shown
+  //   - If data is stale: background fetch fires, cache shown while loading
+  // The user only ever sees a blank loading state on the very first load.
   useFocusEffect(
     React.useCallback(() => {
-      console.log('📱 Screen focused - checking if refetch needed');
-      
-      // Refetch posts when returning to this screen
-      // This ensures fresh data when user navigates back from comments
-      refetch();
-    }, [refetch])
+      const state = queryClient.getQueryState(queryKey);
+      const isStale =
+        !state ||
+        !state.dataUpdatedAt ||
+        Date.now() - state.dataUpdatedAt > 1000 * 60 * 2;
+
+      if (isStale) {
+        console.log('📱 Screen focused — data stale, background refetch');
+        // refetchType: 'active' = refetch silently without clearing cache
+        queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+      } else {
+        console.log('📱 Screen focused — data fresh, showing cache');
+      }
+    }, [queryKey, queryClient])
   );
 
   // ─────────────────────────────────────────────────────────────────────
@@ -126,7 +153,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   // HANDLERS
   // ─────────────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
-    console.log('🔄 User pulled to refresh');
+    console.log('🔄 User pulled to refresh — forcing full refetch');
     await refetch();
   };
 
@@ -142,32 +169,19 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     refetch();
   };
 
-  // ─────────────────────────────────────────────────────────────────────
-  // COMMENT BUTTON HANDLER
-  // ─────────────────────────────────────────────────────────────────────
   const handleCommentPress = (postId) => {
     console.log('💬 Opening comments for post:', postId);
     navigation.navigate('Comments', { postId });
   };
 
   // ─────────────────────────────────────────────────────────────────────
-  // LOADING STATE (Initial Load)
+  // LOADING STATE — only shown on very first load (no cached data)
   // ─────────────────────────────────────────────────────────────────────
   if (isLoading && posts.length === 0) {
     return (
-      <View
-        style={[
-          styles.centered,
-          { backgroundColor: theme.colors.background },
-        ]}
-      >
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text
-          style={[
-            styles.loadingText,
-            { color: theme.colors.subText, marginTop: 12 },
-          ]}
-        >
+        <Text style={[styles.loadingText, { color: theme.colors.subText, marginTop: 12 }]}>
           Loading posts...
         </Text>
       </View>
@@ -179,31 +193,16 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   // ─────────────────────────────────────────────────────────────────────
   if (error && posts.length === 0) {
     return (
-      <View
-        style={[
-          styles.centered,
-          { backgroundColor: theme.colors.background },
-        ]}
-      >
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
         <MaterialCommunityIcons name="wifi-off" size={60} color="#64748B" />
-        <Text
-          style={[styles.errorText, { color: theme.colors.subText }]}
-        >
+        <Text style={[styles.errorText, { color: theme.colors.subText }]}>
           Failed to load posts
         </Text>
-        <Text
-          style={[
-            styles.errorSubtext,
-            { color: theme.colors.subText, marginTop: 8 },
-          ]}
-        >
+        <Text style={[styles.errorSubtext, { color: theme.colors.subText, marginTop: 8 }]}>
           {error?.message || 'Please check your connection'}
         </Text>
         <TouchableOpacity
-          style={[
-            styles.retryButton,
-            { backgroundColor: theme.colors.primary },
-          ]}
+          style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
           onPress={handleRetry}
         >
           <Text style={styles.retryText}>Retry</Text>
@@ -222,40 +221,24 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       renderItem={({ item }) => (
         <PostCard
           post={item}
-          // ✅ Delete handler - invalidates query to refetch
           onDeleteSuccess={() => {
             queryClient.invalidateQueries({ queryKey });
           }}
-          // ✅ COMMENT PRESS - navigates to Comments screen
           onCommentPress={() => handleCommentPress(item.id)}
         />
       )}
-      // ─────────────────────────────────────────────────────────────────
-      // INFINITE SCROLL - Load more posts when reaching end
-      // ─────────────────────────────────────────────────────────────────
       onEndReached={handleEndReached}
       onEndReachedThreshold={0.5}
       ListFooterComponent={
         isFetchingNextPage ? (
           <View style={styles.loadMoreContainer}>
-            <ActivityIndicator
-              size="small"
-              color={theme.colors.primary}
-            />
-            <Text
-              style={[
-                styles.loadingText,
-                { color: theme.colors.subText, marginTop: 8 },
-              ]}
-            >
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.subText, marginTop: 8 }]}>
               Loading more posts...
             </Text>
           </View>
         ) : null
       }
-      // ─────────────────────────────────────────────────────────────────
-      // PULL-TO-REFRESH
-      // ─────────────────────────────────────────────────────────────────
       refreshControl={
         <RefreshControl
           refreshing={isRefetching}
@@ -264,27 +247,14 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
           progressViewOffset={20}
         />
       }
-      // ─────────────────────────────────────────────────────────────────
-      // EMPTY STATE
-      // ─────────────────────────────────────────────────────────────────
       ListEmptyComponent={
-        <View
-          style={[
-            styles.centered,
-            { backgroundColor: theme.colors.background, minHeight: 300 },
-          ]}
-        >
+        <View style={[styles.centered, { backgroundColor: theme.colors.background, minHeight: 300 }]}>
           <MaterialCommunityIcons
             name="inbox-multiple-outline"
             size={48}
             color={theme.colors.subText}
           />
-          <Text
-            style={[
-              styles.emptyText,
-              { color: theme.colors.subText, marginTop: 12 },
-            ]}
-          >
+          <Text style={[styles.emptyText, { color: theme.colors.subText, marginTop: 12 }]}>
             {debouncedSearch
               ? 'No posts found matching your search.'
               : 'No posts available.'}
@@ -318,25 +288,15 @@ const styles = StyleSheet.create({
     marginVertical: 12,
     fontWeight: '600',
   },
-  errorSubtext: {
-    fontSize: 13,
-  },
+  errorSubtext: { fontSize: 13 },
   retryButton: {
     paddingHorizontal: 28,
     paddingVertical: 12,
     borderRadius: 8,
     marginTop: 20,
   },
-  retryText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  emptyText: {
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '500',
-  },
+  retryText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  emptyText: { textAlign: 'center', fontSize: 16, fontWeight: '500' },
   loadMoreContainer: {
     paddingVertical: 25,
     alignItems: 'center',

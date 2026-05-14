@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -11,8 +11,9 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useRoute } from '@react-navigation/native';   // ← Add this
+import { useRoute } from '@react-navigation/native';
 
 import api from '../api/client';
 import PostCard from '../components/PostCard';
@@ -20,103 +21,131 @@ import CommentItem from '../components/CommentItem';
 
 export default function PostDetailScreen() {
   const route = useRoute();
-  const postId = route.params?.postId || route.params?.id;   // Support both
+
+  const postId = route.params?.postId || route.params?.id;
 
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
+
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [editingComment, setEditingComment] = useState(null);
 
-  // Mentions
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [filteredUsers, setFilteredUsers] = useState([]);
-
-  const mockUsers = [
-    { id: 1, handle: 'gilly', name: 'Gilly' },
-    { id: 2, handle: 'messi10', name: 'Leo Messi' },
-    { id: 3, handle: 'cr7', name: 'Ronaldo' },
-  ];
-
-  // Fetch post + comments
-  const fetchData = async () => {
-    if (!postId) return;
+  const fetchPostData = useCallback(async () => {
+    if (!postId) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
-      const [pRes, cRes] = await Promise.all([
-        api.get(`api/posts/${postId}/`),
-        api.get(`api/posts/${postId}/comments/`),
-      ]);
-      setPost(pRes.data);
-      setComments(cRes.data);
-    } catch (e) {
-      console.log('Fetch error:', e);
-      Alert.alert('Error', 'Failed to load post');
+
+      console.log('🔍 Loading post:', postId);
+
+      const postResponse = await api.get(`api/posts/${postId}/`);
+
+      let commentsResponse = null;
+
+      try {
+        commentsResponse = await api.get(`api/posts/${postId}/comments/`);
+      } catch (err) {
+        console.log('⚠️ Comments fetch failed:', err?.response?.data);
+      }
+
+      const postData = postResponse?.data || {};
+
+      let commentsData = [];
+      if (Array.isArray(commentsResponse?.data)) {
+        commentsData = commentsResponse.data;
+      } else if (Array.isArray(commentsResponse?.data?.results)) {
+        commentsData = commentsResponse.data.results;
+      }
+
+      setPost(postData);
+      setComments(commentsData);
+    } catch (error) {
+      console.log('❌ Post detail error:', error?.response?.data || error.message);
+      Alert.alert('Error', 'Failed to load post.');
     } finally {
       setLoading(false);
     }
-  };
-
-  // Deep link + initial load
-  useEffect(() => {
-    if (postId) {
-      console.log('✅ Opened via deep link - Post ID:', postId);
-      fetchData();
-    }
   }, [postId]);
 
-  const handleInputChange = (text) => {
-    setNewComment(text);
-    const lastWord = text.split(' ').pop();
-    if (lastWord?.startsWith('@')) {
-      const query = lastWord.slice(1).toLowerCase();
-      const filtered = mockUsers.filter((u) => u.handle.includes(query));
-      setFilteredUsers(filtered);
-      setShowSuggestions(filtered.length > 0);
-    } else {
-      setShowSuggestions(false);
-    }
-  };
+  useEffect(() => {
+    fetchPostData();
+  }, [fetchPostData]);
 
-  const selectUser = (user) => {
-    const words = newComment.split(' ');
-    words.pop();
-    setNewComment([...words, `@${user.handle} `].join(' '));
-    setShowSuggestions(false);
-  };
-
-  const handleSendComment = async () => {
-    if (!newComment.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-    const trimmedComment = newComment.trim();
+  const submitComment = async () => {
+    const trimmed = newComment.trim();
+    if (!trimmed) return;
 
     try {
-      if (editingComment) {
-        const res = await api.patch(`api/posts/comments/${editingComment.id}/`, {
-          content: trimmedComment,
-        });
-        setComments((prev) =>
-          prev.map((c) => (c.id === editingComment.id ? res.data : c))
-        );
-        setEditingComment(null);
-      } else {
-        const res = await api.post(`api/posts/${postId}/comments/`, {
-          content: trimmedComment,
-          post: postId,
-        });
+      setIsSubmitting(true);
 
-        setComments((prev) => [res.data, ...prev]);
-        setPost((prev) => ({
-          ...prev,
-          comments_count: (prev?.comments_count || 0) + 1,
-        }));
-      }
+      console.log('▶️ Posting comment to: api/posts/' + postId + '/comments/');
+
+      const response = await api.post(
+        `api/posts/${postId}/comments/`,
+        { content: trimmed }
+      );
+
+      console.log('✅ Comment posted:', response.data);
+
+      setComments(prev => [response.data, ...prev]);
+      setPost(prev => ({
+        ...prev,
+        comments_count: (prev?.comments_count || 0) + 1,
+      }));
       setNewComment('');
-    } catch (e) {
-      console.log('Comment error:', e.response?.data || e.message);
-      Alert.alert('Error', 'Failed to post comment.');
+
+    } catch (error) {
+      const status = error?.response?.status;
+      const data   = error?.response?.data;
+
+      console.log('❌ Comment error | status:', status);
+      console.log('❌ Comment error | body  :', JSON.stringify(data, null, 2));
+
+      // ── Fallback: old CommentViewSet still active on server (urls.py not yet deployed)
+      // It intercepts the route and demands 'post' in the body.
+      // Retry with post ID included — this bridges the gap until backend is updated.
+      if (status === 400 && data?.post) {
+        console.log('🔄 Retrying with post field in body (deploy urls.py fix to resolve permanently)...');
+        try {
+          const retryResponse = await api.post(
+            `api/posts/${postId}/comments/`,
+            { content: trimmed, post: postId }
+          );
+          console.log('✅ Retry succeeded:', retryResponse.data);
+          setComments(prev => [retryResponse.data, ...prev]);
+          setPost(prev => ({
+            ...prev,
+            comments_count: (prev?.comments_count || 0) + 1,
+          }));
+          setNewComment('');
+          return;
+        } catch (retryError) {
+          console.log('❌ Retry also failed:', retryError?.response?.data);
+        }
+      }
+
+      // ── Show a meaningful error to the user ──────────────────────────
+      let userMessage = 'Could not post comment.';
+      if (status === 401) {
+        userMessage = 'You must be logged in to comment.';
+      } else if (status === 403) {
+        userMessage = 'You do not have permission to comment on this post.';
+      } else if (status === 400) {
+        const detail =
+          data?.detail ||
+          data?.content?.[0] ||
+          data?.non_field_errors?.[0] ||
+          JSON.stringify(data);
+        userMessage = `Validation error: ${detail}`;
+      } else if (status >= 500) {
+        userMessage = 'Server error. Please try again later.';
+      }
+
+      Alert.alert('Error', userMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -130,63 +159,75 @@ export default function PostDetailScreen() {
     );
   }
 
+  if (!post) {
+    return (
+      <View style={styles.centered}>
+        <Text style={{ color: '#fff' }}>Post not found.</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={95}
+        keyboardVerticalOffset={90}
       >
         <FlatList
           data={comments}
-          keyExtractor={(item) => item.id.toString()}
-          ListHeaderComponent={() => post && <PostCard post={post} />}
+          keyExtractor={(item, index) => (item?.id || index).toString()}
+          ListHeaderComponent={<PostCard post={post} />}
           renderItem={({ item }) => (
             <CommentItem
               comment={item}
               postAuthorId={post?.author_details?.id}
-              onDeleteSuccess={(id) =>
-                setComments((prev) => prev.filter((c) => c.id !== id))
-              }
-              onEditPress={(c) => {
-                setEditingComment(c);
-                setNewComment(c.content);
+              onDeleteSuccess={(id) => {
+                setComments(prev => prev.filter(c => c.id !== id));
+                setPost(prev => ({
+                  ...prev,
+                  comments_count: (prev?.comments_count || 1) - 1,
+                }));
               }}
             />
           )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons
+                name="comment-outline"
+                size={60}
+                color="#64748B"
+              />
+              <Text style={styles.emptyText}>No comments yet.</Text>
+              <Text style={styles.emptySubtext}>Be the first to comment.</Text>
+            </View>
+          }
+          contentContainerStyle={{ paddingBottom: 120 }}
         />
-
-        {/* Mentions Suggestions */}
-        {showSuggestions && (
-          <View style={styles.suggestions}>
-            {filteredUsers.map((user) => (
-              <TouchableOpacity
-                key={user.id}
-                style={styles.sugItem}
-                onPress={() => selectUser(user)}
-              >
-                <Text style={styles.sugText}>@{user.handle}</Text>
-                <Text style={styles.sugSubText}>{user.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
 
         <View style={styles.footer}>
           <TextInput
             style={styles.input}
             value={newComment}
-            onChangeText={handleInputChange}
+            onChangeText={setNewComment}
             placeholder="Write a comment..."
             placeholderTextColor="#94A3B8"
             multiline
           />
-          <TouchableOpacity onPress={handleSendComment} style={styles.sendBtn}>
-            <MaterialCommunityIcons
-              name={editingComment ? 'check' : 'send'}
-              size={22}
-              color="#fff"
-            />
+
+          <TouchableOpacity
+            onPress={submitComment}
+            disabled={isSubmitting}
+            style={[
+              styles.sendBtn,
+              { opacity: isSubmitting || !newComment.trim() ? 0.5 : 1 },
+            ]}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <MaterialCommunityIcons name="send" size={22} color="#fff" />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -195,47 +236,57 @@ export default function PostDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D1F2D' },
+  container: {
+    flex: 1,
+    backgroundColor: '#0D1F2D',
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#0D1F2D',
   },
-  suggestions: {
-    backgroundColor: '#1A2A3D',
-    borderTopWidth: 1,
-    borderTopColor: '#1E90FF40',
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
   },
-  sugItem: {
-    padding: 15,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#1E293B',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  emptyText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 12,
   },
-  sugText: { color: '#1E90FF', fontWeight: 'bold' },
-  sugSubText: { color: '#94A3B8', fontSize: 12 },
+  emptySubtext: {
+    color: '#94A3B8',
+    marginTop: 6,
+  },
   footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#1A2A3D',
+    backgroundColor: '#112634',
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
   },
   input: {
     flex: 1,
     backgroundColor: '#0D1F2D',
     color: '#fff',
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    maxHeight: 120,
   },
   sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     marginLeft: 10,
     backgroundColor: '#1E90FF',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
