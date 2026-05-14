@@ -141,12 +141,12 @@ export default function CommentsScreen({ route, navigation }) {
     try {
       if (editingComment) {
         await api.patch(`api/posts/comments/${editingComment.id}/`, {
-          content: commentText,
+          content: commentText.trim(),
         });
         console.log('✏️ Comment edited:', editingComment.id);
       } else {
         await api.post(`api/posts/${postId}/comments/`, {
-          content: commentText,
+          content: commentText.trim(),
         });
         console.log('➕ New comment posted to post:', postId);
       }

@@ -111,7 +111,7 @@ export default function ChooseTeamsScreen({ route, navigation }) {
 
       if (isEditMode) {
         Alert.alert('Success', 'Your preferences have been updated!');
-        navigation.goBack();
+        navigation.navigate('MainApp', { screen: 'Home' });  // ✅ goes to home
       } else if (isAddingNew) {
         navigation.navigate('MainApp', { screen: 'Profile' });
       } else {

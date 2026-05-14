@@ -1,22 +1,21 @@
 /**
- * FeedList.js – ConnectDial (FIXED v2)
+ * FeedList.js – ConnectDial (FIXED v3)
  * ─────────────────────────────────────────────────────────────────────
- * FIXES in this version:
- * ✅ FIX #6: Cache-while-revalidate — on app reopen, cached posts show
- *            instantly while a silent background refetch updates them.
- *            Previously refetch() on every focus caused a blank flash
- *            because it triggered isLoading=true and cleared the list.
+ * FIXES in this version (on top of v2):
+ * ✅ FIX #7: Follow button seeds FollowContext from feed data on load.
+ *            Previously FollowContext started as an empty Set, so
+ *            followingIds.has(id) was always false and every post
+ *            showed "Follow" even for already-followed users.
+ *            Now when posts load we extract all author IDs where
+ *            is_following=true and call setInitialFollowing() to seed
+ *            the context. Re-seeds whenever feed data refreshes too.
  *
- *   HOW IT WORKS:
- *   - staleTime: 2 min  → data is "fresh" for 2 min, no refetch needed
- *   - gcTime: 30 min    → cache kept in memory for 30 min after unmount
- *   - On focus: if data is stale, TanStack Query revalidates in the
- *     background (cached data stays visible, no loading spinner)
- *   - If app was closed/backgrounded > 2 min, focus triggers a silent
- *     background fetch — user sees old posts while new ones load in
- *   - Pull-to-refresh still forces an immediate full refetch
+ * ✅ FIX #8: Follow button hidden on "Following" tab entirely.
+ *            Posts in the Following feed are by definition already
+ *            followed. A hideFollow={feedType === 'following'} prop is
+ *            passed to PostCard so the button never shows there.
  *
- * ✅ All previous features preserved
+ * ✅ All previous features preserved (cache-while-revalidate, etc.)
  * ─────────────────────────────────────────────────────────────────────
  */
 
@@ -37,6 +36,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import PostCard from './PostCard';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
+// ✅ FIX #7: Import useFollow so we can seed the context from feed data
+import { useFollow } from '../store/FollowContext';
 import { useNavigation } from '@react-navigation/native';
 import api from '../api/client';
 
@@ -55,6 +56,9 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   const navigation = useNavigation();
   const queryClient = useQueryClient();
+
+  // ✅ FIX #7: Pull setInitialFollowing from FollowContext
+  const { setInitialFollowing } = useFollow();
 
   // ─────────────────────────────────────────────────────────────────────
   // DEBOUNCED SEARCH
@@ -103,29 +107,15 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     initialPageParam: 0,
     enabled: true,
 
-    // ── FIX #6: Cache-while-revalidate settings ──────────────────────
-    // staleTime: posts are "fresh" for 2 minutes. Within 2 min of the
-    // last fetch, focus will NOT trigger a refetch — user sees cached
-    // data with zero loading. After 2 min (e.g. user was away), the
-    // data is "stale": a background refetch fires but the cached list
-    // stays visible while it loads. No blank flash.
-    staleTime: 1000 * 60 * 2,   // 2 minutes — adjust to taste
+    // ── Cache-while-revalidate settings ──────────────────────────────
+    staleTime: 1000 * 60 * 2,   // 2 minutes fresh window
     gcTime:    1000 * 60 * 30,  // 30 minutes in memory after unmount
-                                 // (was 10 — raised so reopening app
-                                 //  after a short break still has cache)
-
-    // refetchOnWindowFocus is web-only but kept for completeness
     refetchOnWindowFocus: true,
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // FIX #6: Silent background revalidation on screen focus
+  // Silent background revalidation on screen focus
   // ─────────────────────────────────────────────────────────────────────
-  // We do NOT call refetch() unconditionally — that forces a full reload
-  // and clears the list. Instead we let TanStack Query decide:
-  //   - If data is fresh (< 2 min old): nothing happens, cache shown
-  //   - If data is stale: background fetch fires, cache shown while loading
-  // The user only ever sees a blank loading state on the very first load.
   useFocusEffect(
     React.useCallback(() => {
       const state = queryClient.getQueryState(queryKey);
@@ -136,7 +126,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
       if (isStale) {
         console.log('📱 Screen focused — data stale, background refetch');
-        // refetchType: 'active' = refetch silently without clearing cache
         queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
       } else {
         console.log('📱 Screen focused — data fresh, showing cache');
@@ -148,6 +137,24 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   // FLATTEN PAGINATED DATA
   // ─────────────────────────────────────────────────────────────────────
   const posts = data?.pages?.flatMap(page => page.results || page) || [];
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ✅ FIX #7: Seed FollowContext whenever feed data arrives
+  // Extracts every author in this feed where is_following=true and
+  // merges them into the shared context Set. This fixes the blank/Follow
+  // state on first render when the context Set is still empty.
+  // ─────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (posts.length === 0) return;
+    const followedIds = posts
+      .map(p => p.author_details)
+      .filter(a => a?.is_following && a?.id)
+      .map(a => a.id);
+    if (followedIds.length > 0) {
+      setInitialFollowing(followedIds);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]); // re-seed whenever query data refreshes
 
   // ─────────────────────────────────────────────────────────────────────
   // HANDLERS
@@ -221,6 +228,10 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       renderItem={({ item }) => (
         <PostCard
           post={item}
+          // ✅ FIX #8: On the Following tab, hide the "Follow" button only.
+          // The "Following" button stays visible so users can still unfollow.
+          // On the Global/Home tab this is false so both states show normally.
+          hideFollow={feedType === 'following'}
           onDeleteSuccess={() => {
             queryClient.invalidateQueries({ queryKey });
           }}

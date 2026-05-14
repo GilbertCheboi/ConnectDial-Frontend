@@ -2,24 +2,47 @@
  * PushNotificationHandler.js
  * Handles Firebase messages with SOUND + VIBRATION
  * Location: src/services/PushNotificationHandler.js
+ *
+ * FIXES:
+ * ✅ FIX #1: RNSound constructor — require('react-native-sound') returns
+ *            the module; the actual class lives at .default (or the module
+ *            itself if no default export). Guard both cases so
+ *            `new RNSound(...)` never throws "constructor is not callable".
+ * ✅ FIX #2: Renamed export to `setupPushNotifications` to match what
+ *            AppNavigator / NotificationContext call. Old name
+ *            `setupPushMessageHandlers` kept as alias for safety.
  */
 
 import messaging from '@react-native-firebase/messaging';
 import { Platform, Vibration } from 'react-native';
 
+// ─────────────────────────────────────────────────────────────────────
+// FIX #1: Safely resolve the RNSound constructor.
+// require() can return { default: SoundClass } (ESM interop) or the
+// class directly (CJS). Normalise to always get the callable class.
+// ─────────────────────────────────────────────────────────────────────
 let RNSound = null;
 try {
-  RNSound = require('react-native-sound');
-  RNSound.setCategory('Playback');
+  const mod = require('react-native-sound');
+  // ESM default export wrapped by Metro bundler
+  RNSound = mod?.default ?? mod;
+
+  if (typeof RNSound !== 'function') {
+    console.warn('⚠️ react-native-sound loaded but is not a constructor:', typeof RNSound);
+    RNSound = null;
+  } else {
+    RNSound.setCategory('Playback');
+    console.log('✅ react-native-sound loaded successfully');
+  }
 } catch (e) {
   console.warn('⚠️ react-native-sound not available:', e.message);
 }
 
 let notificationSound = null;
 
-/**
- * Initialize notification sound
- */
+// ─────────────────────────────────────────────────────────────────────
+// Initialize notification sound
+// ─────────────────────────────────────────────────────────────────────
 export const initializeSound = () => {
   if (!RNSound) return;
   try {
@@ -28,7 +51,7 @@ export const initializeSound = () => {
       RNSound.MAIN_BUNDLE,
       (error) => {
         if (error) {
-          console.log('❌ Failed to load custom sound:', error);
+          console.log('❌ Failed to load custom sound, trying fallback:', error);
           loadSystemSound();
         } else {
           console.log('✅ Custom notification sound loaded successfully');
@@ -58,9 +81,9 @@ const loadSystemSound = () => {
   }
 };
 
-/**
- * Play notification sound
- */
+// ─────────────────────────────────────────────────────────────────────
+// Play / stop notification sound
+// ─────────────────────────────────────────────────────────────────────
 export const playNotificationSound = async () => {
   if (!RNSound) return;
   try {
@@ -68,7 +91,6 @@ export const playNotificationSound = async () => {
       initializeSound();
       return;
     }
-
     notificationSound.stop(() => {
       notificationSound.play((success) => {
         if (success) {
@@ -87,13 +109,20 @@ export const stopNotificationSound = () => {
   try {
     if (notificationSound) notificationSound.stop();
   } catch (e) {
-    console.log('Error stopping sound');
+    console.log('Error stopping sound:', e);
   }
 };
 
-/**
- * Trigger vibration (using built-in API)
- */
+export const cleanupSound = () => {
+  if (notificationSound) {
+    notificationSound.release();
+    notificationSound = null;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// Vibration
+// ─────────────────────────────────────────────────────────────────────
 const triggerVibration = () => {
   try {
     if (Platform.OS === 'android') {
@@ -106,9 +135,9 @@ const triggerVibration = () => {
   }
 };
 
-/**
- * Handle navigation when notification is tapped
- */
+// ─────────────────────────────────────────────────────────────────────
+// Handle navigation when notification is tapped
+// ─────────────────────────────────────────────────────────────────────
 export function handleNotificationPress(navigationRef, data) {
   if (!navigationRef?.isReady?.()) {
     console.log('⚠️ Navigation not ready');
@@ -128,25 +157,31 @@ export function handleNotificationPress(navigationRef, data) {
   }
 }
 
-/**
- * Background handler — MUST be at top level (Firebase requirement)
- */
+// ─────────────────────────────────────────────────────────────────────
+// Background handler — MUST be at top level (Firebase requirement)
+// ─────────────────────────────────────────────────────────────────────
 messaging().setBackgroundMessageHandler(async (remoteMessage) => {
   console.log('📬 Background notification received:', remoteMessage);
   playNotificationSound();
   triggerVibration();
 });
 
-/**
- * Setup Message Handlers (Foreground only now)
- */
-export function setupPushMessageHandlers(navigationRef, showToastCallback) {
+// ─────────────────────────────────────────────────────────────────────
+// FIX #2: Export as BOTH names so AppNavigator / NotificationContext
+// work regardless of which name they import.
+//
+//   AppNavigator calls:          setupPushNotifications(navigationRef)
+//   Old export was named:        setupPushMessageHandlers(navigationRef, cb)
+//
+// The new primary export is `setupPushNotifications`.
+// `setupPushMessageHandlers` is kept as an alias for any other callers.
+// ─────────────────────────────────────────────────────────────────────
+export function setupPushNotifications(navigationRef, showToastCallback) {
   const msg = messaging();
 
   // Foreground handler
   const unsubscribeForeground = msg.onMessage(async (remoteMessage) => {
     console.log('📬 Foreground notification:', remoteMessage);
-
     const { notification, data } = remoteMessage;
 
     playNotificationSound();
@@ -195,12 +230,5 @@ export function setupPushMessageHandlers(navigationRef, showToastCallback) {
   };
 }
 
-/**
- * Cleanup
- */
-export const cleanupSound = () => {
-  if (notificationSound) {
-    notificationSound.release();
-    notificationSound = null;
-  }
-};
+// Alias — keeps any existing imports working
+export const setupPushMessageHandlers = setupPushNotifications;
