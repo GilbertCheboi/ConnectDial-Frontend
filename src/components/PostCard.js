@@ -850,7 +850,7 @@ const styles = StyleSheet.create({
   card: {
     paddingVertical: 12,
     marginBottom: 8,
-    marginHorizontal: 8,
+    marginHorizontal: 4,
     borderWidth: 1,
     borderRadius: 10,
     overflow: 'hidden',

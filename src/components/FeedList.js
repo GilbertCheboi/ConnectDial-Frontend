@@ -91,6 +91,8 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       }
     };
 
+    // Reset initialData when storageKey changes (leagueId/search changes)
+    setInitialData(null);
     hydrateFeedCache();
 
     return () => {
@@ -105,6 +107,27 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     () => ['posts', feedType, leagueId, debouncedSearch],
     [feedType, leagueId, debouncedSearch]
   );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // INVALIDATE QUERY WHEN LEAGUE/SEARCH CHANGES
+  // ─────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    // When leagueId or search changes, invalidate the previous query
+    // This ensures we don't show stale data from a different league
+    queryClient.invalidateQueries({
+      queryKey: ['posts', feedType],
+      refetchType: 'none', // Don't refetch yet, just mark as stale
+    });
+  }, [leagueId, debouncedSearch, feedType, queryClient]);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // TRIGGER REFETCH WHEN LEAGUE CHANGES
+  // ─────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (leagueId !== undefined) { // Only refetch if we have a leagueId (including null for global)
+      queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+    }
+  }, [leagueId, queryClient, queryKey]);
 
   // ─────────────────────────────────────────────────────────────────────
   // INFINITE QUERY
