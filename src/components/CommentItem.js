@@ -28,9 +28,16 @@ const CommentItem = ({
   const { user } = useContext(AuthContext);
   const { theme } = useContext(ThemeContext);
 
+  // ── Optimistic like state so UI responds instantly ──
+  const [liked, setLiked] = useState(comment?.liked_by_me || false);
+  const [likesCount, setLikesCount] = useState(comment?.likes_count || 0);
   const [isLiking, setIsLiking] = useState(false);
 
-  // Backend compatibility
+  // ── Optimistic repost state ──
+  const [reposted, setReposted] = useState(false);
+  const [isReposting, setIsReposting] = useState(false);
+
+  // Backend compatibility — author field may come under several keys
   const author =
     comment?.author_details ||
     comment?.user_details ||
@@ -41,8 +48,6 @@ const CommentItem = ({
 
   const isCommentOwner = user?.id === author?.id;
   const isPostAuthor = author?.id === postAuthorId;
-
-  const isLikedByMe = comment?.liked_by_me || false;
 
   const profileImageUri =
     author?.profile_pic ||
@@ -64,31 +69,57 @@ const CommentItem = ({
   };
 
   // ─────────────────────────────────────────────
-  // LIKE / UNLIKE
+  // LIKE / UNLIKE  (optimistic UI)
   // ─────────────────────────────────────────────
 
   const handleLike = async () => {
     if (isLiking) return;
 
+    // Optimistic update
+    const wasLiked = liked;
+    setLiked(!wasLiked);
+    setLikesCount(prev => wasLiked ? Math.max(0, prev - 1) : prev + 1);
     setIsLiking(true);
 
     try {
-      if (isLikedByMe) {
+      if (wasLiked) {
         await api.delete(`api/posts/comments/${comment.id}/like/`);
       } else {
         await api.post(`api/posts/comments/${comment.id}/like/`);
       }
-
+      // Optionally sync server count, but optimistic is fine for UX
       refreshComments?.();
     } catch (err) {
-      console.log('Comment like failed', err);
+      // Revert on failure
+      setLiked(wasLiked);
+      setLikesCount(prev => wasLiked ? prev + 1 : Math.max(0, prev - 1));
+      console.log('Comment like failed', err?.response?.data || err);
     } finally {
       setIsLiking(false);
     }
   };
 
   // ─────────────────────────────────────────────
-  // LONG PRESS MENU
+  // REPOST / SHARE
+  // ─────────────────────────────────────────────
+
+  const handleRepost = async () => {
+    if (isReposting || reposted) return;
+
+    setIsReposting(true);
+    try {
+      await api.post(`api/posts/comments/${comment.id}/repost/`);
+      setReposted(true);
+    } catch (err) {
+      console.log('Comment repost failed', err?.response?.data || err);
+      Alert.alert('Error', 'Could not repost comment.');
+    } finally {
+      setIsReposting(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // LONG PRESS MENU (owner only)
   // ─────────────────────────────────────────────
 
   const handleLongPress = () => {
@@ -109,33 +140,25 @@ const CommentItem = ({
           { borderBottomColor: theme.colors.border },
         ]}
       >
-        {/* Avatar */}
+        {/* ── Avatar ── */}
         <TouchableOpacity
           onPress={() =>
-            navigation.navigate('Profile', {
-              userId: author?.id,
-            })
+            navigation.navigate('Profile', { userId: author?.id })
           }
         >
           <Image source={{ uri: profileImageUri }} style={styles.avatar} />
         </TouchableOpacity>
 
-        {/* Content */}
+        {/* ── Content ── */}
         <View style={styles.content}>
-          {/* Header */}
+
+          {/* Header row */}
           <View style={styles.header}>
-            <Text
-              style={[
-                styles.username,
-                { color: theme.colors.text },
-              ]}
-            >
-              {author?.display_name ||
-                author?.username ||
-                'User'}
+            <Text style={[styles.username, { color: theme.colors.text }]}>
+              {author?.display_name || author?.username || 'User'}
             </Text>
 
-            {/* Verified badges */}
+            {/* Verified badge */}
             {author?.badge_type === 'official' && (
               <MaterialCommunityIcons
                 name="check-decagram"
@@ -144,7 +167,6 @@ const CommentItem = ({
                 style={styles.badge}
               />
             )}
-
             {author?.badge_type === 'verified' && (
               <MaterialCommunityIcons
                 name="check-decagram"
@@ -154,62 +176,37 @@ const CommentItem = ({
               />
             )}
 
-            {/* Team/org */}
+            {/* Team/org badge */}
             {(support?.team_name ||
-              ['news', 'organization'].includes(
-                author?.account_type
-              )) && (
+              ['news', 'organization'].includes(author?.account_type)) && (
               <View
                 style={[
                   styles.teamBadge,
                   {
-                    backgroundColor:
-                      theme.colors.primary + '20',
+                    backgroundColor: theme.colors.primary + '20',
                     borderColor: theme.colors.primary,
                   },
                 ]}
               >
                 {support?.team_name && (
-                  <Text
-                    style={[
-                      styles.teamBadgeText,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
+                  <Text style={[styles.teamBadgeText, { color: theme.colors.primary }]}>
                     {support.team_name}
                   </Text>
                 )}
-
-                <Text
-                  style={[
-                    styles.typeLabel,
-                    { color: theme.colors.subText },
-                  ]}
-                >
+                <Text style={[styles.typeLabel, { color: theme.colors.subText }]}>
                   {author?.account_type === 'news'
                     ? ' • News'
-                    : author?.account_type ===
-                      'organization'
+                    : author?.account_type === 'organization'
                     ? ' • Org'
                     : ' • Fan'}
                 </Text>
               </View>
             )}
 
-            {/* Post author */}
+            {/* Author badge */}
             {isPostAuthor && (
-              <View
-                style={[
-                  styles.tag,
-                  {
-                    backgroundColor:
-                      theme.colors.primary,
-                  },
-                ]}
-              >
-                <Text style={styles.tagText}>
-                  Author
-                </Text>
+              <View style={[styles.tag, { backgroundColor: theme.colors.primary }]}>
+                <Text style={styles.tagText}>Author</Text>
               </View>
             )}
           </View>
@@ -217,109 +214,83 @@ const CommentItem = ({
           {/* Comment body */}
           <Autolink
             text={comment?.content || ''}
-            style={[
-              styles.body,
-              { color: theme.colors.text },
-            ]}
-            linkStyle={{
-              color: theme.colors.primary,
-              fontWeight: '600',
-            }}
+            style={[styles.body, { color: theme.colors.text }]}
+            linkStyle={{ color: theme.colors.primary, fontWeight: '600' }}
             onPress={url => Linking.openURL(url)}
           />
 
-          {/* Footer */}
+          {/* Footer actions */}
           <View style={styles.footer}>
             <View style={styles.actionRow}>
 
               {/* LIKE */}
+              <TouchableOpacity style={styles.action} onPress={handleLike}>
+                <MaterialCommunityIcons
+                  name={liked ? 'heart' : 'heart-outline'}
+                  size={15}
+                  color={liked ? theme.colors.notificationBadge : theme.colors.subText}
+                />
+                <Text style={[styles.footerText, { color: theme.colors.subText }]}>
+                  {likesCount}
+                </Text>
+              </TouchableOpacity>
+
+              {/* REPOST */}
               <TouchableOpacity
-                style={styles.action}
-                onPress={handleLike}
+                style={[styles.action, { marginLeft: 16 }]}
+                onPress={handleRepost}
+                disabled={isReposting || reposted}
               >
                 <MaterialCommunityIcons
-                  name={
-                    isLikedByMe
-                      ? 'heart'
-                      : 'heart-outline'
-                  }
+                  name="repeat"
                   size={15}
                   color={
-                    isLikedByMe
-                      ? theme.colors.notificationBadge
+                    reposted
+                      ? theme.colors.primary
                       : theme.colors.subText
                   }
                 />
-
-                <Text
-                  style={[
-                    styles.footerText,
-                    {
-                      color: theme.colors.subText,
-                    },
-                  ]}
-                >
-                  {comment?.likes_count || 0}
-                </Text>
+                {reposted && (
+                  <Text style={[styles.footerText, { color: theme.colors.primary }]}>
+                    Reposted
+                  </Text>
+                )}
               </TouchableOpacity>
 
               {/* REPLY */}
               <TouchableOpacity
-                style={[
-                  styles.action,
-                  { marginLeft: 20 },
-                ]}
-                onPress={() => onReplyPress(comment)}
+                style={[styles.action, { marginLeft: 16 }]}
+                onPress={() => onReplyPress?.(comment)}
               >
-                <Text
-                  style={[
-                    styles.footerText,
-                    {
-                      color: theme.colors.subText,
-                    },
-                  ]}
-                >
+                <MaterialCommunityIcons
+                  name="reply-outline"
+                  size={15}
+                  color={theme.colors.subText}
+                />
+                <Text style={[styles.footerText, { color: theme.colors.subText }]}>
                   Reply
                 </Text>
               </TouchableOpacity>
 
               {/* REPLIES COUNT */}
               {(comment?.replies_count || 0) > 0 && (
-                <View style={{ marginLeft: 20 }}>
-                  <Text
-                    style={[
-                      styles.footerText,
-                      {
-                        color: theme.colors.primary,
-                      },
-                    ]}
-                  >
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={[styles.footerText, { color: theme.colors.primary }]}>
                     {comment.replies_count} replies
                   </Text>
                 </View>
               )}
             </View>
 
-            {/* liked by author */}
+            {/* Liked by author badge */}
             {comment?.liked_by_author && (
               <View style={styles.authorLikeRow}>
                 <MaterialCommunityIcons
                   name="heart"
                   size={10}
-                  color={
-                    theme.colors.notificationBadge
-                  }
+                  color={theme.colors.notificationBadge}
                 />
-
-                <Text
-                  style={[
-                    styles.authorLikeText,
-                    {
-                      color:
-                        theme.colors.notificationBadge,
-                    },
-                  ]}
-                >
+                <Text style={[styles.authorLikeText, { color: theme.colors.notificationBadge }]}>
                   Liked by Author
                 </Text>
               </View>
@@ -337,63 +308,50 @@ const styles = StyleSheet.create({
     padding: 15,
     borderBottomWidth: 0.5,
   },
-
   avatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
     backgroundColor: '#1E293B',
   },
-
   content: {
     flex: 1,
     marginLeft: 12,
   },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
     flexWrap: 'wrap',
   },
-
   username: {
     fontWeight: '700',
     fontSize: 14,
   },
-
-  badge: {
-    marginLeft: 3,
-  },
-
+  badge: { marginLeft: 3 },
   body: {
     fontSize: 14,
     lineHeight: 20,
   },
-
   footer: {
     flexDirection: 'row',
     marginTop: 10,
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-
   action: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-
   footerText: {
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 4,
   },
-
   teamBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,32 +361,27 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     borderWidth: 0.5,
   },
-
   teamBadgeText: {
     fontSize: 9,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
-
   typeLabel: {
     fontSize: 9,
     fontWeight: '600',
     marginLeft: 2,
   },
-
   tag: {
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
     marginLeft: 8,
   },
-
   tagText: {
     fontSize: 9,
     fontWeight: 'bold',
     color: '#FFF',
   },
-
   authorLikeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -437,7 +390,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
   },
-
   authorLikeText: {
     fontSize: 9,
     fontWeight: 'bold',

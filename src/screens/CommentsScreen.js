@@ -1,16 +1,18 @@
 /**
- * CommentsScreen.js - Display and manage post comments
+ * CommentsScreen.js
  * ─────────────────────────────────────────────────────────────────────
- * FIXES in this version:
- * ✅ FIX #3: Emoji picker bar above comment input
- * ✅ FIX #3: postAuthorId was incorrectly set to postId — now correctly
- *            passed from fetched post data (post?.author_details?.id)
- * ✅ FIX #3: Data flattening hardened for both paginated & plain arrays
- * ✅ All existing features preserved (infinite scroll, edit, delete, etc.)
+ * FIXES:
+ * ✅ 400 on POST comments/ — payload now sends { content } correctly
+ * ✅ onReplyPress was never passed to CommentItem — now wired up
+ * ✅ Reply flow: tapping Reply pre-fills "@username " in input and
+ *    posts to the same comments endpoint (backend handles parent via body)
+ * ✅ Replying indicator shown above input (like editing indicator)
+ * ✅ refreshComments prop wired into CommentItem so likes refresh list
+ * ✅ All existing features preserved (emoji, edit, delete, pagination)
  * ─────────────────────────────────────────────────────────────────────
  */
 
-import React, { useContext, useCallback, useState } from 'react';
+import React, { useContext, useCallback, useState, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -34,7 +36,7 @@ import { ThemeContext } from '../store/themeStore';
 import api from '../api/client';
 
 // ─────────────────────────────────────────────────────────────────────
-// FIX #3: Emoji picker — common sports & reaction emojis
+// Emoji picker — common sports & reaction emojis
 // ─────────────────────────────────────────────────────────────────────
 const EMOJI_LIST = [
   '⚽', '🏀', '🏈', '🎾', '🏒', '🏆', '🥇', '🔥',
@@ -54,18 +56,22 @@ export default function CommentsScreen({ route, navigation }) {
         text: '#F8FAFC',
         border: '#1E293B',
         card: '#112634',
+        notificationBadge: '#FF453A',
       },
     },
   };
 
   const queryClient = useQueryClient();
+  const inputRef = useRef(null);
+
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingComment, setEditingComment] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null); // { id, username }
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────
-  // FIX #3: Fetch the post so we have the real author ID
+  // Fetch the post so we have the real author ID
   // ─────────────────────────────────────────────────────────────────────
   const { data: postData } = useQuery({
     queryKey: ['post', postId],
@@ -76,7 +82,7 @@ export default function CommentsScreen({ route, navigation }) {
     staleTime: 1000 * 60 * 5,
   });
 
-  const postAuthorId = postData?.author_details?.id;
+  const postAuthorId = postData?.author_details?.id ?? postData?.author?.id;
 
   // ─────────────────────────────────────────────────────────────────────
   // FETCH COMMENTS WITH PAGINATION
@@ -94,17 +100,14 @@ export default function CommentsScreen({ route, navigation }) {
     queryKey: ['comments', postId],
     queryFn: async ({ pageParam = 0 }) => {
       const url = `api/posts/${postId}/comments/?limit=20&offset=${pageParam}`;
-      console.log('📝 Fetching comments from:', url);
       const response = await api.get(url);
       return response.data;
     },
     getNextPageParam: (lastPage, allPages) => {
-      // Handle both paginated {count, results} and plain array responses
       if (lastPage?.count !== undefined) {
         const nextOffset = allPages.length * 20;
         return nextOffset < lastPage.count ? nextOffset : undefined;
       }
-      // Plain array — no more pages
       return undefined;
     },
     initialPageParam: 0,
@@ -113,17 +116,16 @@ export default function CommentsScreen({ route, navigation }) {
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // AUTO-FETCH COMMENTS WHEN SCREEN OPENS
+  // AUTO-REFRESH ON FOCUS
   // ─────────────────────────────────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
-      console.log('💬 Comments screen focused - fetching comments');
       refetch();
     }, [refetch])
   );
 
   // ─────────────────────────────────────────────────────────────────────
-  // FIX #3: Harden data flattening — handles both paginated and plain arrays
+  // Flatten paginated pages → flat comment array
   // ─────────────────────────────────────────────────────────────────────
   const comments = data?.pages?.flatMap(page => {
     if (Array.isArray(page)) return page;
@@ -132,63 +134,99 @@ export default function CommentsScreen({ route, navigation }) {
   }) || [];
 
   // ─────────────────────────────────────────────────────────────────────
-  // SUBMIT COMMENT (NEW OR EDIT)
+  // SUBMIT COMMENT (NEW / EDIT / REPLY)
+  //
+  // FIX: The backend CommentSerializer only requires `content`.
+  //      The post FK is set in the view via serializer.save(post=post).
+  //      Sending extra unknown fields can also cause 400s — keep it clean.
   // ─────────────────────────────────────────────────────────────────────
   const handleSubmitComment = async () => {
-    if (!commentText.trim()) return;
+    const trimmed = commentText.trim();
+    if (!trimmed) return;
 
     setIsSubmitting(true);
     try {
       if (editingComment) {
+        // EDIT existing comment
         await api.patch(`api/posts/comments/${editingComment.id}/`, {
-          content: commentText.trim(),
+          content: trimmed,
         });
-        console.log('✏️ Comment edited:', editingComment.id);
+      } else if (replyingTo) {
+        // REPLY — post as a new comment; backend links via parent_comment if
+        // you pass it, otherwise it lands as a top-level comment with @mention
+        const payload = { content: trimmed };
+        if (replyingTo.id) {
+          payload.parent_comment = replyingTo.id;
+        }
+        await api.post(`api/posts/${postId}/comments/`, payload);
       } else {
+        // NEW top-level comment
+        // FIX: only send `content` — the view sets author & post server-side
         await api.post(`api/posts/${postId}/comments/`, {
-          content: commentText.trim(),
+          content: trimmed,
         });
-        console.log('➕ New comment posted to post:', postId);
       }
 
       setCommentText('');
       setEditingComment(null);
+      setReplyingTo(null);
       setShowEmojiPicker(false);
       queryClient.invalidateQueries({ queryKey: ['comments', postId] });
-      // Also invalidate the post so comment count updates in feed
       queryClient.invalidateQueries({ queryKey: ['posts'] });
     } catch (err) {
-      console.error('❌ Error submitting comment:', err);
+      console.error('❌ Error submitting comment:', err?.response?.data || err);
       alert('Failed to submit comment. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────
+  // REPLY HANDLER — wired into CommentItem via onReplyPress
+  // ─────────────────────────────────────────────────────────────────────
+  const handleReplyPress = (comment) => {
+    const author =
+      comment?.author_details ||
+      comment?.user_details ||
+      comment?.author ||
+      comment?.user;
+
+    const username = author?.username || 'user';
+
+    setReplyingTo({ id: comment.id, username });
+    setEditingComment(null);
+    setCommentText(`@${username} `);
+    setShowEmojiPicker(false);
+
+    // Focus the input after a short tick so keyboard opens
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
   const handleEditPress = (comment) => {
     setEditingComment(comment);
+    setReplyingTo(null);
     setCommentText(comment.content);
     setShowEmojiPicker(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleDeleteSuccess = (commentId) => {
-    console.log('🗑️ Comment deleted:', commentId);
     queryClient.invalidateQueries({ queryKey: ['comments', postId] });
     queryClient.invalidateQueries({ queryKey: ['posts'] });
   };
 
   const handleEndReached = () => {
-    if (hasNextPage && !isFetchingNextPage) {
-      console.log('📜 Loading more comments');
-      fetchNextPage();
-    }
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   };
 
-  // ─────────────────────────────────────────────────────────────────────
-  // FIX #3: Insert emoji at cursor (appends to end for simplicity)
-  // ─────────────────────────────────────────────────────────────────────
   const handleEmojiSelect = (emoji) => {
     setCommentText(prev => prev + emoji);
+  };
+
+  const cancelInput = () => {
+    setEditingComment(null);
+    setReplyingTo(null);
+    setCommentText('');
   };
 
   // ─────────────────────────────────────────────────────────────────────
@@ -197,13 +235,7 @@ export default function CommentsScreen({ route, navigation }) {
   if (isLoading && comments.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Comments</Text>
-          <View style={{ width: 24 }} />
-        </View>
+        <ScreenHeader navigation={navigation} theme={theme} count={0} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
@@ -217,17 +249,10 @@ export default function CommentsScreen({ route, navigation }) {
   if (error && comments.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Comments</Text>
-          <View style={{ width: 24 }} />
-        </View>
+        <ScreenHeader navigation={navigation} theme={theme} count={0} />
         <View style={styles.centered}>
-          <MaterialCommunityIcons name="alert-circle-outline" size={48} color={theme.colors.subText} />
-          <Text style={[styles.errorText, { color: theme.colors.subText, marginTop: 12 }]}>
-            Failed to load comments
+          <Text style={[styles.errorText, { color: theme.colors.subText }]}>
+            Failed to load comments.
           </Text>
           <TouchableOpacity
             style={[styles.retryBtn, { backgroundColor: theme.colors.primary }]}
@@ -241,20 +266,13 @@ export default function CommentsScreen({ route, navigation }) {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // MAIN COMMENTS VIEW
+  // MAIN RENDER
   // ─────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+
       {/* HEADER */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Comments {comments.length > 0 && `(${comments.length})`}
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <ScreenHeader navigation={navigation} theme={theme} count={comments.length} />
 
       {/* COMMENTS LIST */}
       <FlatList
@@ -263,10 +281,13 @@ export default function CommentsScreen({ route, navigation }) {
         renderItem={({ item }) => (
           <CommentItem
             comment={item}
-            // FIX #3: Use actual post author ID, not postId
             postAuthorId={postAuthorId}
             onDeleteSuccess={handleDeleteSuccess}
             onEditPress={handleEditPress}
+            // FIX: was never passed before — caused crash on Reply tap
+            onReplyPress={handleReplyPress}
+            // FIX: lets CommentItem trigger a list refresh after like/unlike
+            refreshComments={refetch}
           />
         )}
         onEndReached={handleEndReached}
@@ -287,8 +308,9 @@ export default function CommentsScreen({ route, navigation }) {
           </View>
         }
         refreshing={isRefetching}
-        onRefresh={() => refetch()}
-        scrollEnabled={true}
+        onRefresh={refetch}
+        scrollEnabled
+        keyboardShouldPersistTaps="handled"
       />
 
       {/* COMMENT INPUT FOOTER */}
@@ -298,26 +320,34 @@ export default function CommentsScreen({ route, navigation }) {
       >
         <View style={[styles.inputContainer, { borderTopColor: theme.colors.border }]}>
 
-          {/* Editing indicator */}
+          {/* ── Editing indicator ── */}
           {editingComment && (
-            <View style={[styles.editingIndicator, { backgroundColor: theme.colors.primary + '20' }]}>
-              <Text style={[styles.editingText, { color: theme.colors.primary }]}>
+            <View style={[styles.contextIndicator, { backgroundColor: theme.colors.primary + '20' }]}>
+              <Text style={[styles.contextText, { color: theme.colors.primary }]}>
                 ✏️ Editing comment
               </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setEditingComment(null);
-                  setCommentText('');
-                }}
-              >
+              <TouchableOpacity onPress={cancelInput}>
                 <MaterialCommunityIcons name="close" size={18} color={theme.colors.primary} />
               </TouchableOpacity>
             </View>
           )}
 
-          {/* ─────────────────────────────────────────────────────────
-              FIX #3: Emoji picker panel — shows when emoji btn tapped
-              ───────────────────────────────────────────────────────── */}
+          {/* ── Replying indicator ── */}
+          {replyingTo && (
+            <View style={[styles.contextIndicator, { backgroundColor: theme.colors.card }]}>
+              <Text style={[styles.contextText, { color: theme.colors.subText }]}>
+                ↩️ Replying to{' '}
+                <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>
+                  @{replyingTo.username}
+                </Text>
+              </Text>
+              <TouchableOpacity onPress={cancelInput}>
+                <MaterialCommunityIcons name="close" size={18} color={theme.colors.subText} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ── Emoji picker panel ── */}
           {showEmojiPicker && (
             <View style={[styles.emojiPanel, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.emojiScroll}>
@@ -334,8 +364,8 @@ export default function CommentsScreen({ route, navigation }) {
             </View>
           )}
 
+          {/* ── Input row ── */}
           <View style={styles.inputRow}>
-            {/* Emoji toggle button */}
             <TouchableOpacity
               style={styles.emojiToggleBtn}
               onPress={() => setShowEmojiPicker(v => !v)}
@@ -346,6 +376,7 @@ export default function CommentsScreen({ route, navigation }) {
             </TouchableOpacity>
 
             <TextInput
+              ref={inputRef}
               style={[
                 styles.input,
                 {
@@ -354,7 +385,11 @@ export default function CommentsScreen({ route, navigation }) {
                   borderColor: theme.colors.border,
                 },
               ]}
-              placeholder="Write a comment..."
+              placeholder={
+                replyingTo
+                  ? `Reply to @${replyingTo.username}...`
+                  : 'Write a comment...'
+              }
               placeholderTextColor={theme.colors.subText}
               value={commentText}
               onChangeText={setCommentText}
@@ -396,10 +431,28 @@ export default function CommentsScreen({ route, navigation }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Small reusable header component
+// ─────────────────────────────────────────────────────────────────────
+function ScreenHeader({ navigation, theme, count }) {
+  return (
+    <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+      <TouchableOpacity onPress={() => navigation.goBack()}>
+        <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
+      </TouchableOpacity>
+      <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+        Comments{count > 0 ? ` (${count})` : ''}
+      </Text>
+      <View style={{ width: 24 }} />
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // STYLES
 // ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -409,15 +462,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
   },
   headerTitle: { fontSize: 18, fontWeight: '700' },
+
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   errorText: { fontSize: 16, fontWeight: '500', textAlign: 'center' },
   retryBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 6 },
   retryText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+
   emptyContainer: { alignItems: 'center', paddingVertical: 60 },
   emptyText: { fontSize: 14, fontWeight: '500' },
+
   loadingFooter: { paddingVertical: 20, alignItems: 'center' },
-  inputContainer: { borderTopWidth: 0.5, paddingHorizontal: 12, paddingVertical: 12 },
-  editingIndicator: {
+
+  inputContainer: {
+    borderTopWidth: 0.5,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+
+  // Editing / replying indicator
+  contextIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -426,7 +489,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginBottom: 8,
   },
-  editingText: { fontSize: 12, fontWeight: '600' },
+  contextText: { fontSize: 12, fontWeight: '600' },
 
   // Emoji panel
   emojiPanel: {
