@@ -1,7 +1,14 @@
 /**
- * AppNavigator.js - UPDATED VERSION
- * Integrates toast notifications and push notifications
- * Location: src/navigation/AppNavigator.js (REPLACE your current one)
+ * AppNavigator.js - FIXED
+ * Location: src/navigation/AppNavigator.js
+ *
+ * FIXES:
+ * ✅ FIX #1: Call setupPushNotifications(navigationRef) AFTER
+ *            NavigationContainer mounts — previously called before the
+ *            ref was ready, so navigation inside handlers was always null.
+ * ✅ FIX #2: setupPushNotifications now correctly comes from
+ *            NotificationContext (it was missing there before — fixed in
+ *            NotificationContext.js).
  */
 
 import React, { useContext, useEffect, useRef } from 'react';
@@ -30,12 +37,14 @@ import MainStackNavigator from './MainStackNavigator';
 // Components
 import { ToastContainer } from '../components/ToastContainer';
 
-/**
- * Inner navigator component that uses all contexts
- */
+// ─────────────────────────────────────────────────────────────────────
+// Inner component — has access to all contexts
+// ─────────────────────────────────────────────────────────────────────
 function AppNavigatorContent() {
   const { user, loading, isNew } = useContext(AuthContext);
   const themeContext = useContext(ThemeContext) || {};
+
+  // ✅ FIX #2: setupPushNotifications is now properly exported from context
   const { setupPushNotifications } = useNotifications();
 
   const themeName = themeContext.themeName || 'dark';
@@ -52,36 +61,33 @@ function AppNavigatorContent() {
 
   const themeLoading = themeContext.loading || false;
   const navigationRef = useNavigationContainerRef();
-  const setupDone = useRef(false);
+  const fcmSetupDone = useRef(false);
 
-  /**
-   * Save FCM Token to Backend
-   */
+  // ─────────────────────────────────────────────────────────────────────
+  // Save FCM token to backend
+  // ─────────────────────────────────────────────────────────────────────
   const saveTokenToBackend = async (fcmToken) => {
     if (!user?.token) return;
     try {
-      console.log('📱 Syncing FCM Token to Backend:', fcmToken);
+      console.log('📱 Syncing FCM Token to backend');
       await api.patch('auth/update/', { fcm_token: fcmToken });
-      console.log('✅ FCM Token successfully synced');
+      console.log('✅ FCM Token synced');
     } catch (error) {
-      console.error(
-        '❌ FCM Sync Error:',
-        error?.response?.data || error.message,
-      );
+      console.error('❌ FCM sync error:', error?.response?.data || error.message);
     }
   };
 
-  /**
-   * Setup Firebase Messaging
-   */
+  // ─────────────────────────────────────────────────────────────────────
+  // Firebase setup — runs once after user logs in
+  // ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!user?.token || setupDone.current) return;
+    if (!user?.token || fcmSetupDone.current) return;
 
     const initializeMessaging = async () => {
       try {
         const msg = messaging();
 
-        // Request permission (iOS)
+        // Request permission (iOS — Android 13+ handled in App.tsx)
         const authStatus = await msg.requestPermission();
         const enabled =
           authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
@@ -92,42 +98,35 @@ function AppNavigatorContent() {
           return;
         }
 
-        // Get and save FCM token
+        // Get and sync FCM token
         const fcmToken = await msg.getToken();
         if (fcmToken) {
-          console.log('✅ FCM Token:', fcmToken);
           await saveTokenToBackend(fcmToken);
         }
 
-        // Setup push notification handlers
-        if (navigationRef.isReady()) {
-          setupPushNotifications(navigationRef);
-          setupDone.current = true;
-        }
+        fcmSetupDone.current = true;
+        console.log('✅ Firebase messaging initialised');
       } catch (error) {
         console.error('❌ Firebase setup failed:', error);
       }
     };
 
     initializeMessaging();
-  }, [user?.token, setupPushNotifications, navigationRef]);
+  }, [user?.token]);
 
-  /**
-   * Token Refresh Listener
-   */
+  // ─────────────────────────────────────────────────────────────────────
+  // Token refresh listener
+  // ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.token) return;
-
     const msg = messaging();
-    const unsubscribe = msg.onTokenRefresh((fcmToken) => {
-      console.log('🔄 FCM Token refreshed');
-      saveTokenToBackend(fcmToken);
-    });
-
+    const unsubscribe = msg.onTokenRefresh(saveTokenToBackend);
     return unsubscribe;
   }, [user?.token]);
 
-  // Loading Screen
+  // ─────────────────────────────────────────────────────────────────────
+  // Loading screen
+  // ─────────────────────────────────────────────────────────────────────
   if (loading || themeLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -136,7 +135,9 @@ function AppNavigatorContent() {
     );
   }
 
-  // Theme Configuration
+  // ─────────────────────────────────────────────────────────────────────
+  // Navigation theme
+  // ─────────────────────────────────────────────────────────────────────
   const navigationTheme =
     themeName === 'dark'
       ? {
@@ -166,7 +167,20 @@ function AppNavigatorContent() {
 
   return (
     <>
-      <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+      <NavigationContainer
+        ref={navigationRef}
+        theme={navigationTheme}
+        // ✅ FIX #1: onReady fires after NavigationContainer fully mounts,
+        // so navigationRef.current is valid when setupPushNotifications runs.
+        // Previously this was called in a useEffect before the container
+        // was ready, causing navigation inside handlers to silently fail.
+        onReady={() => {
+          if (user) {
+            console.log('🗺️ Navigation ready — setting up push handlers');
+            setupPushNotifications(navigationRef);
+          }
+        }}
+      >
         {user ? (
           isNew ? (
             <OnboardingNavigator />
@@ -182,9 +196,9 @@ function AppNavigatorContent() {
   );
 }
 
-/**
- * Main AppNavigator with all providers
- */
+// ─────────────────────────────────────────────────────────────────────
+// Root AppNavigator with all providers
+// ─────────────────────────────────────────────────────────────────────
 export default function AppNavigator() {
   return (
     <ToastProvider>

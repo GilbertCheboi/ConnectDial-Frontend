@@ -331,7 +331,11 @@ const QuoteHeader = ({ originalData, theme }) => {
 // ─────────────────────────────────────────────────────────────────────
 // MAIN PostCard COMPONENT
 // ─────────────────────────────────────────────────────────────────────
-const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
+// ✅ FIX #8: hideFollow — when true, hides the "Follow" button for authors
+// the user doesn't follow yet, but keeps the "Following" button visible so
+// the user can still unfollow from the Following tab.
+// Pass hideFollow={feedType === 'following'} from FeedList.
+const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, hideFollow = false }) => {
   const { user } = useContext(AuthContext);
   const { followingIds, updateFollowStatus } = useFollow();
   const navigation = useNavigation();
@@ -669,7 +673,10 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
             </View>
           </TouchableOpacity>
 
-          {!isOwner && (
+          {/* ✅ FIX #8: On the Following tab (hideFollow=true), only hide the
+              "Follow" button (user not yet following). The "Following" button
+              stays visible so the user can still unfollow from that tab. */}
+          {!isOwner && !(hideFollow && !isFollowing) && (
             <TouchableOpacity
               style={[
                 styles.smallFollowBtn,

@@ -1,11 +1,25 @@
 /**
- * NotificationContext.js - FULLY ENHANCED
- * Integrates Toast + Firebase Push with Sound + Vibration (Foreground + Background)
+ * NotificationContext.js - FIXED
  * Location: src/store/NotificationContext.js
+ *
+ * FIXES:
+ * ✅ FIX #1: Expose `setupPushNotifications(navigationRef)` so AppNavigator
+ *            can call it — previously the context never exported this function
+ *            causing "setupPushNotifications is not a function" crash.
+ * ✅ FIX #2: Pass the live `navigationRef` object (not `.current`) into the
+ *            handler so navigation works even if ref wasn't ready at setup time.
+ * ✅ FIX #3: Import matches the fixed export name from PushNotificationHandler.
  */
 
-import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
-import { setupPushMessageHandlers } from '../services/PushNotificationHandler';
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useContext,
+  useRef,
+  useCallback,
+} from 'react';
+import { setupPushNotifications as _setupPushNotifications } from '../services/PushNotificationHandler';
 import api from '../api/client';
 import { AuthContext } from './authStore';
 import { ToastContext } from './ToastContext';
@@ -18,81 +32,80 @@ export const NotificationProvider = ({ children }) => {
 
   const authCtx = useContext(AuthContext);
   const { showToast } = useContext(ToastContext);
-  const navigationRef = useRef(null); // You'll pass this from AppNavigator
 
-  /**
-   * Fetch unread notification count from backend
-   */
-  const fetchUnreadCount = async () => {
+  // ─────────────────────────────────────────────────────────────────────
+  // handlersRef tracks the Firebase unsub functions so we can clean up
+  // ─────────────────────────────────────────────────────────────────────
+  const handlersRef = useRef(null);
+  const setupDoneRef = useRef(false);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Fetch unread count from backend
+  // ─────────────────────────────────────────────────────────────────────
+  const fetchUnreadCount = useCallback(async () => {
     if (!authCtx?.user?.token) {
       setLoading(false);
       return;
     }
-
     try {
       const response = await api.get('api/notifications/unread-count/');
-      const count = response.data.unread_count || response.data.count || 0;
+      const count = response.data.unread_count ?? response.data.count ?? 0;
       setUnreadCount(count);
     } catch (error) {
       console.log('❌ Error fetching unread count:', error.response?.data || error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [authCtx?.user?.token]);
 
-  /**
-   * Navigate based on notification type
-   */
-  const handleNotificationNavigation = (data) => {
-    if (!navigationRef.current?.isReady()) {
-      console.log('⚠️ Navigation not ready yet');
-      return;
-    }
+  // ─────────────────────────────────────────────────────────────────────
+  // FIX #1 + #2: setupPushNotifications receives the navigationRef OBJECT
+  // (not .current) so the handler always reads the latest ref value when
+  // a notification arrives — even if it wasn't ready at setup time.
+  // AppNavigator calls this after NavigationContainer is mounted.
+  // ─────────────────────────────────────────────────────────────────────
+  const setupPushNotifications = useCallback((navigationRef) => {
+    if (setupDoneRef.current) return; // don't register handlers twice
 
-    const { notification_type, post_id, user_id, sender_id } = data;
+    console.log('🔔 Setting up push notification handlers');
 
-    try {
-      if (['like', 'comment', 'repost', 'mention'].includes(notification_type)) {
-        navigationRef.current.navigate('PostDetail', { postId: post_id });
-      } else if (notification_type === 'follow') {
-        navigationRef.current.navigate('Profile', { userId: sender_id || user_id });
-      }
-    } catch (error) {
-      console.error('❌ Navigation error:', error);
-    }
-  };
+    // Wrap navigationRef so the handler always uses the current value
+    const navProxy = {
+      isReady: () => navigationRef?.isReady?.() ?? false,
+      navigate: (...args) => navigationRef?.navigate?.(...args),
+    };
 
-  /**
-   * Setup Push Notifications with Sound + Vibration
-   */
+    handlersRef.current = _setupPushNotifications(navProxy, showToast);
+    setupDoneRef.current = true;
+  }, [showToast]);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // On login: fetch count + start polling. On logout: cleanup.
+  // ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authCtx?.user?.token) {
       setLoading(false);
+      setUnreadCount(0);
       return;
     }
 
-    // Fetch initial count
     fetchUnreadCount();
 
-    // Setup Firebase handlers (Foreground sound, vibration, toast, etc.)
-    const handlers = setupPushMessageHandlers(
-      navigationRef.current,
-      showToast
-    );
-
-    // Polling fallback (every 2 minutes)
-    const interval = setInterval(fetchUnreadCount, 120000);
+    // Polling fallback every 2 minutes
+    const interval = setInterval(fetchUnreadCount, 120_000);
 
     return () => {
       clearInterval(interval);
-      // Cleanup handlers
-      if (handlers) {
-        handlers.unsubscribeForeground?.();
-        handlers.unsubscribeOpened?.();
-        handlers.unsubscribeTokenRefresh?.();
+      // Clean up Firebase listeners on logout
+      if (handlersRef.current) {
+        handlersRef.current.unsubscribeForeground?.();
+        handlersRef.current.unsubscribeOpened?.();
+        handlersRef.current.unsubscribeTokenRefresh?.();
+        handlersRef.current = null;
       }
+      setupDoneRef.current = false;
     };
-  }, [authCtx?.user?.token, showToast]);
+  }, [authCtx?.user?.token, fetchUnreadCount]);
 
   return (
     <NotificationContext.Provider
@@ -101,8 +114,8 @@ export const NotificationProvider = ({ children }) => {
         setUnreadCount,
         fetchUnreadCount,
         loading,
-        handleNotificationNavigation,
-        navigationRef, // expose if needed
+        // ✅ FIX #1: Now exported — AppNavigator can call this
+        setupPushNotifications,
       }}
     >
       {children}
