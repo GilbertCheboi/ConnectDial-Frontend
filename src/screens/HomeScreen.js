@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext } from 'react';
 import {
   View,
   StyleSheet,
@@ -12,7 +12,7 @@ import { ThemeContext } from '../store/themeStore';
 import FeedList from '../components/FeedList';
 
 export default function HomeScreen({ route, navigation }) {
-  const [currentLeagueId, setCurrentLeagueId] = useState(route.params?.leagueId);
+  const leagueId = route.params?.leagueId;
   const { theme } = useContext(ThemeContext) || {
     theme: {
       colors: {
@@ -24,14 +24,6 @@ export default function HomeScreen({ route, navigation }) {
       },
     },
   };
-
-  // Update leagueId when route params change
-  useEffect(() => {
-    const newLeagueId = route.params?.leagueId;
-    if (newLeagueId !== currentLeagueId) {
-      setCurrentLeagueId(newLeagueId);
-    }
-  }, [route.params?.leagueId, currentLeagueId]);
 
   const findDrawerNavigation = nav => {
     let parent = nav;
@@ -83,10 +75,10 @@ export default function HomeScreen({ route, navigation }) {
       >
         <Tabs.Tab name="Global">
           {/* FeedList logic now handles league preferences internally */}
-          <FeedList feedType="global" leagueId={currentLeagueId} />
+          <FeedList feedType="global" leagueId={leagueId} />
         </Tabs.Tab>
         <Tabs.Tab name="Following">
-          <FeedList feedType="following" leagueId={currentLeagueId} />
+          <FeedList feedType="following" leagueId={leagueId} />
         </Tabs.Tab>
       </Tabs.Container>
 

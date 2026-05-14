@@ -29,7 +29,6 @@ import {
   RefreshControl,
   TouchableOpacity,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Tabs } from 'react-native-collapsible-tab-view';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -56,13 +55,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   const navigation = useNavigation();
   const queryClient = useQueryClient();
-  const [initialData, setInitialData] = useState(null);
-
-  const storageKey = useMemo(() => {
-    const leaguePart = leagueId ? `league:${leagueId}` : 'league:all';
-    const searchPart = debouncedSearch ? `search:${debouncedSearch}` : 'search:none';
-    return `feed-cache:${feedType}:${leaguePart}:${searchPart}`;
-  }, [feedType, leagueId, debouncedSearch]);
 
   // ─────────────────────────────────────────────────────────────────────
   // DEBOUNCED SEARCH
@@ -74,32 +66,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  useEffect(() => {
-    let active = true;
-
-    const hydrateFeedCache = async () => {
-      try {
-        const cached = await AsyncStorage.getItem(storageKey);
-        if (!cached || !active) return;
-
-        const parsed = JSON.parse(cached);
-        if (parsed?.pages) {
-          setInitialData(parsed);
-        }
-      } catch (err) {
-        console.log('Feed cache hydration failed:', err);
-      }
-    };
-
-    // Reset initialData when storageKey changes (leagueId/search changes)
-    setInitialData(null);
-    hydrateFeedCache();
-
-    return () => {
-      active = false;
-    };
-  }, [storageKey]);
-
   // ─────────────────────────────────────────────────────────────────────
   // QUERY KEY
   // ─────────────────────────────────────────────────────────────────────
@@ -107,27 +73,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     () => ['posts', feedType, leagueId, debouncedSearch],
     [feedType, leagueId, debouncedSearch]
   );
-
-  // ─────────────────────────────────────────────────────────────────────
-  // INVALIDATE QUERY WHEN LEAGUE/SEARCH CHANGES
-  // ─────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    // When leagueId or search changes, invalidate the previous query
-    // This ensures we don't show stale data from a different league
-    queryClient.invalidateQueries({
-      queryKey: ['posts', feedType],
-      refetchType: 'none', // Don't refetch yet, just mark as stale
-    });
-  }, [leagueId, debouncedSearch, feedType, queryClient]);
-
-  // ─────────────────────────────────────────────────────────────────────
-  // TRIGGER REFETCH WHEN LEAGUE CHANGES
-  // ─────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (leagueId !== undefined) { // Only refetch if we have a leagueId (including null for global)
-      queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
-    }
-  }, [leagueId, queryClient, queryKey]);
 
   // ─────────────────────────────────────────────────────────────────────
   // INFINITE QUERY
@@ -156,7 +101,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       return nextOffset < (lastPage.count || 0) ? nextOffset : undefined;
     },
     initialPageParam: 0,
-    initialData: initialData || undefined,
     enabled: true,
 
     // ── FIX #6: Cache-while-revalidate settings ──────────────────────
@@ -204,19 +148,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   // FLATTEN PAGINATED DATA
   // ─────────────────────────────────────────────────────────────────────
   const posts = data?.pages?.flatMap(page => page.results || page) || [];
-
-  useEffect(() => {
-    if (!data?.pages) return;
-
-    const payload = {
-      pages: data.pages,
-      pageParams: data.pageParams || [],
-    };
-
-    AsyncStorage.setItem(storageKey, JSON.stringify(payload)).catch(err => {
-      console.log('Feed cache save failed:', err);
-    });
-  }, [data, storageKey]);
 
   // ─────────────────────────────────────────────────────────────────────
   // HANDLERS
