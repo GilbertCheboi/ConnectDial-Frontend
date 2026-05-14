@@ -144,17 +144,20 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   // merges them into the shared context Set. This fixes the blank/Follow
   // state on first render when the context Set is still empty.
   // ─────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (posts.length === 0) return;
-    const followedIds = posts
-      .map(p => p.author_details)
-      .filter(a => a?.is_following && a?.id)
-      .map(a => a.id);
-    if (followedIds.length > 0) {
-      setInitialFollowing(followedIds);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]); // re-seed whenever query data refreshes
+  // NOTE: Following list is now initialized globally in FollowContext on app start,
+  // so this seeding is no longer needed. Keeping as backup in case of edge cases.
+  // ─────────────────────────────────────────────────────────────────────
+  // useEffect(() => {
+  //   if (posts.length === 0) return;
+  //   const followedIds = posts
+  //     .map(p => p.author_details)
+  //     .filter(a => a?.is_following && a?.id)
+  //     .map(a => a.id);
+  //   if (followedIds.length > 0) {
+  //     setInitialFollowing(followedIds);
+  //   }
+  // // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [data]); // re-seed whenever query data refreshes
 
   // ─────────────────────────────────────────────────────────────────────
   // HANDLERS
