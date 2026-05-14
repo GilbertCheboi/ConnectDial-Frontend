@@ -18,15 +18,7 @@
           "client_type": 1,
           "android_info": {
             "package_name": "com.connectmobile.app",
-            "certificate_hash": "eedd75a988502961fcc9de6f9a8b65c3e56d0937"
-          }
-        },
-        {
-          "client_id": "597689072930-67d9a06t10l30gi1rdtm5o0lr7sb2g06.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.connectmobile.app",
-            "certificate_hash": "f335eb259113d370842affefd9d1b48f4558f033"
+            "certificate_hash": "d2bddc267368cc27186cadf457af1f87311ba82d"
           }
         },
         {

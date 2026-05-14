@@ -5,9 +5,9 @@ import CommentsScreen from '../screens/CommentsScreen';
 import PostDetailScreen from '../screens/PostDetailScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import OnboardingNavigator from '../api/OnboardingNavigator';
-// 🚀 Import the universal screen (formerly CreateProfileScreen)
 import EditProfileScreen from '../screens/onboarding/EditProfileScreen';
 import ShortEditorScreen from '../screens/ShortEditorScreen';
+import FollowersList from '../screens/FollowersList';
 
 const Stack = createStackNavigator();
 
@@ -19,10 +19,13 @@ export default function MainStackNavigator() {
         gestureEnabled: true,
       }}
     >
-      {/* 1. The main app (Drawer + Tabs) */}
-      <Stack.Screen name="MainApp" component={MainDrawerNavigator} />
+      {/* 1. Main App */}
+      <Stack.Screen
+        name="MainApp"
+        component={MainDrawerNavigator}
+      />
 
-      {/* 2. Post and Interaction Screens */}
+      {/* 2. Post & Interaction Screens */}
       <Stack.Screen
         name="Comments"
         component={CommentsScreen}
@@ -34,6 +37,7 @@ export default function MainStackNavigator() {
           headerBackTitleVisible: false,
         }}
       />
+
       <Stack.Screen
         name="PostDetail"
         component={PostDetailScreen}
@@ -45,7 +49,7 @@ export default function MainStackNavigator() {
         }}
       />
 
-      {/* 3. Profile & Edit Flow */}
+      {/* 3. Profile Screens */}
       <Stack.Screen
         name="Profile"
         component={ProfileScreen}
@@ -57,7 +61,6 @@ export default function MainStackNavigator() {
         }}
       />
 
-      {/* 🚀 Universal Edit/Create Screen */}
       <Stack.Screen
         name="EditProfile"
         component={EditProfileScreen}
@@ -69,6 +72,19 @@ export default function MainStackNavigator() {
         }}
       />
 
+      {/* Followers / Following List */}
+      <Stack.Screen
+        name="FollowersList"
+        component={FollowersList}
+        options={({ route }) => ({
+          headerShown: true,
+          title: route.params?.title || 'Connections',
+          headerStyle: { backgroundColor: '#0D1F2D' },
+          headerTintColor: '#fff',
+        })}
+      />
+
+      {/* Shorts */}
       <Stack.Screen
         name="ShortEditor"
         component={ShortEditorScreen}
@@ -80,8 +96,11 @@ export default function MainStackNavigator() {
         }}
       />
 
-      {/* 4. Onboarding Stack */}
-      <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+      {/* 4. Onboarding */}
+      <Stack.Screen
+        name="Onboarding"
+        component={OnboardingNavigator}
+      />
     </Stack.Navigator>
   );
 }

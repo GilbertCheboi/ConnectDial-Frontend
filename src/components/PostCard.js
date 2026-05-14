@@ -1,11 +1,11 @@
 /**
- * PostCard.js – ConnectDial (ENHANCED & FIXED v4)
+ * PostCard.js – ConnectDial (FIXED v5)
  * ─────────────────────────────────────────────────────────────────────
- * FIXES:
- * ✅ Fixed: `setNativeProps is not a function` error (removed completely)
- * ✅ Correct video pause on screen blur using React state only
- * ✅ Clean imports and code structure
- * ✅ Fully working video controls
+ * FIXES in this version:
+ * ✅ FIX #2: Hashtags (#PremierLeague) now clickable & blue
+ * ✅ FIX #2: Mentions (@user) now clickable & blue, navigate to Profile
+ * ✅ FIX #2: Quote-box content also uses Autolink (was plain Text before)
+ * ✅ All other existing functionality preserved
  * ─────────────────────────────────────────────────────────────────────
  */
 import React, {
@@ -83,7 +83,6 @@ const VideoTile = ({ uri, style, onScreenBlur }) => {
   const [muted, setMuted] = useState(true);
   const videoRef = useRef(null);
 
-  // Pause & mute video when screen loses focus
   useEffect(() => {
     if (!onScreenBlur) return;
     const unsubscribe = onScreenBlur(() => {
@@ -92,14 +91,6 @@ const VideoTile = ({ uri, style, onScreenBlur }) => {
     });
     return unsubscribe;
   }, [onScreenBlur]);
-
-  const handlePlayPause = () => {
-    setPaused(p => !p);
-  };
-
-  const handleMuteToggle = () => {
-    setMuted(m => !m);
-  };
 
   return (
     <TouchableOpacity activeOpacity={0.95} style={style}>
@@ -112,16 +103,13 @@ const VideoTile = ({ uri, style, onScreenBlur }) => {
         muted={muted}
         repeat
         onError={e => console.log('Video error:', e)}
-        onLoad={() => setPaused(true)} // Ensure video starts paused
+        onLoad={() => setPaused(true)}
       />
-
       <View style={styles.videoOverlay} />
-
-      {/* Center Play/Pause Button */}
       <TouchableOpacity
         activeOpacity={0.7}
         style={styles.centerPlayButton}
-        onPress={handlePlayPause}
+        onPress={() => setPaused(p => !p)}
       >
         <MaterialCommunityIcons
           name={paused ? 'play-circle' : 'pause-circle'}
@@ -129,12 +117,10 @@ const VideoTile = ({ uri, style, onScreenBlur }) => {
           color="rgba(255,255,255,0.9)"
         />
       </TouchableOpacity>
-
-      {/* Top-right Mute Button */}
       <TouchableOpacity
         activeOpacity={0.7}
         style={styles.muteButton}
-        onPress={handleMuteToggle}
+        onPress={() => setMuted(m => !m)}
       >
         <View style={styles.muteButtonBg}>
           <MaterialCommunityIcons
@@ -144,8 +130,6 @@ const VideoTile = ({ uri, style, onScreenBlur }) => {
           />
         </View>
       </TouchableOpacity>
-
-      {/* Unmuted Indicator */}
       {!muted && (
         <View style={styles.unmuteIndicator}>
           <Text style={styles.unmuteText}>🔊</Text>
@@ -243,7 +227,6 @@ const MediaGrid = ({ mediaFiles, onScreenBlur }) => {
     );
   }
 
-  // 4+ items → 2x2 grid
   const displayItems = mediaFiles.slice(0, 4);
   const extra = mediaFiles.length - 4;
   const tileW = (MEDIA_WIDTH - 4) / 2;
@@ -268,7 +251,6 @@ const MediaGrid = ({ mediaFiles, onScreenBlur }) => {
           height: tileH,
           borderRadius: 12,
         });
-
         if (isLast) {
           return (
             <View key={idx} style={{ width: tileW, height: tileH }}>
@@ -332,11 +314,8 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
   const [followLoading, setFollowLoading] = useState(false);
 
-  // Screen blur handler
   const handleScreenBlur = useCallback(
-    callback => {
-      return navigation.addListener('blur', callback);
-    },
+    callback => navigation.addListener('blur', callback),
     [navigation],
   );
 
@@ -346,7 +325,6 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
     }, []),
   );
 
-  // Resolve media
   const resolvedMedia = (() => {
     if (post.media_files?.length > 0) return post.media_files;
     if (post.media_file || post.media_url) {
@@ -362,7 +340,6 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
     return [];
   })();
 
-  // Handlers
   const handleShare = async () => {
     try {
       const uri = await captureRef(postRef, {
@@ -370,11 +347,10 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
         quality: 0.92,
         result: 'tmpfile',
       });
-      const shareLink = `https://connectdial.app/post/${post.id}`;
+      const deepLink = `https://connectdial.app/post/${post.id}`;
       const message = `Check out this post on ConnectDial 🔥\n\n${
         post.content?.substring(0, 140) ?? ''
-      }${post.content?.length > 140 ? '...' : ''}\n\n${shareLink}`;
-
+      }${post.content?.length > 140 ? '...' : ''}\n\n🔗 ${deepLink}`;
       await Share.open({
         title: 'Share Post',
         message,
@@ -393,10 +369,8 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
     if (followLoading || !author?.id) return;
     const prev = isFollowing;
     const authorId = author.id;
-
     setFollowLoading(true);
     updateFollowStatus(authorId, !prev);
-
     try {
       const res = await api.post(`auth/users/${authorId}/toggle-follow/`);
       updateFollowStatus(authorId, res.data.following);
@@ -465,6 +439,26 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
         },
       },
     ]);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // FIX #2: Shared Autolink handler for hashtags AND mentions
+  // ─────────────────────────────────────────────────────────────────────
+  const handleAutolinkPress = (url, match) => {
+    const type = match.getType();
+    if (type === 'mention') {
+      // Navigate to profile by username
+      navigation.navigate('Profile', {
+        username: match.getAnchorText().replace('@', ''),
+      });
+    } else if (type === 'hashtag') {
+      // Navigate to hashtag search / feed
+      navigation.navigate('Search', {
+        query: match.getAnchorText(),
+      });
+    } else {
+      Linking.openURL(url);
+    }
   };
 
   return (
@@ -613,6 +607,10 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
           >
             {!!post.content && (
               <View pointerEvents="box-none">
+                {/* ─────────────────────────────────────────────────────
+                    FIX #2: Added hashtag="twitter" and mention="twitter"
+                    so #tags and @mentions are blue & tappable
+                    ───────────────────────────────────────────────────── */}
                 <Autolink
                   text={
                     shouldTruncate && !isExpanded
@@ -621,15 +619,9 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
                   }
                   style={[styles.postText, { color: theme.colors.text }]}
                   linkStyle={[styles.linkText, { color: theme.colors.primary }]}
-                  onPress={(url, match) => {
-                    if (match.getType() === 'mention') {
-                      navigation.navigate('Profile', {
-                        username: match.getAnchorText().replace('@', ''),
-                      });
-                    } else {
-                      Linking.openURL(url);
-                    }
-                  }}
+                  hashtag="twitter"
+                  mention="twitter"
+                  onPress={handleAutolinkPress}
                 />
                 {shouldTruncate && (
                   <TouchableOpacity onPress={() => setIsExpanded(e => !e)}>
@@ -660,12 +652,19 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress }) => {
                 >
                   @{originalData.author_details?.username}
                 </Text>
-                <Text
+                {/* ─────────────────────────────────────────────────────
+                    FIX #2: Quote content now uses Autolink too
+                    (was plain <Text> before — mentions/hashtags were dead)
+                    ───────────────────────────────────────────────────── */}
+                <Autolink
+                  text={originalData.content || ''}
                   style={[styles.quoteContent, { color: theme.colors.text }]}
+                  linkStyle={{ color: theme.colors.primary, fontWeight: '600' }}
+                  hashtag="twitter"
+                  mention="twitter"
+                  onPress={handleAutolinkPress}
                   numberOfLines={5}
-                >
-                  {originalData.content}
-                </Text>
+                />
                 {originalData.media_files?.length > 0 && (
                   <MediaGrid
                     mediaFiles={originalData.media_files}

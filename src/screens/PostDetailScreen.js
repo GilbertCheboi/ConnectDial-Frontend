@@ -9,14 +9,19 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useRoute } from '@react-navigation/native';   // ← Add this
+
 import api from '../api/client';
 import PostCard from '../components/PostCard';
 import CommentItem from '../components/CommentItem';
 
-export default function PostDetailScreen({ route }) {
-  const { postId } = route.params;
+export default function PostDetailScreen() {
+  const route = useRoute();
+  const postId = route.params?.postId || route.params?.id;   // Support both
+
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,23 +29,22 @@ export default function PostDetailScreen({ route }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingComment, setEditingComment] = useState(null);
 
-  // Mentions State
+  // Mentions
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredUsers, setFilteredUsers] = useState([]);
 
-  // Replace with real user search API call in production
   const mockUsers = [
     { id: 1, handle: 'gilly', name: 'Gilly' },
     { id: 2, handle: 'messi10', name: 'Leo Messi' },
     { id: 3, handle: 'cr7', name: 'Ronaldo' },
   ];
 
-  useEffect(() => {
-    fetchData();
-  }, [postId]);
-
+  // Fetch post + comments
   const fetchData = async () => {
+    if (!postId) return;
+
     try {
+      setLoading(true);
       const [pRes, cRes] = await Promise.all([
         api.get(`api/posts/${postId}/`),
         api.get(`api/posts/${postId}/comments/`),
@@ -48,18 +52,27 @@ export default function PostDetailScreen({ route }) {
       setPost(pRes.data);
       setComments(cRes.data);
     } catch (e) {
-      console.log(e);
+      console.log('Fetch error:', e);
+      Alert.alert('Error', 'Failed to load post');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputChange = text => {
+  // Deep link + initial load
+  useEffect(() => {
+    if (postId) {
+      console.log('✅ Opened via deep link - Post ID:', postId);
+      fetchData();
+    }
+  }, [postId]);
+
+  const handleInputChange = (text) => {
     setNewComment(text);
     const lastWord = text.split(' ').pop();
-    if (lastWord.startsWith('@')) {
+    if (lastWord?.startsWith('@')) {
       const query = lastWord.slice(1).toLowerCase();
-      const filtered = mockUsers.filter(u => u.handle.includes(query));
+      const filtered = mockUsers.filter((u) => u.handle.includes(query));
       setFilteredUsers(filtered);
       setShowSuggestions(filtered.length > 0);
     } else {
@@ -67,7 +80,7 @@ export default function PostDetailScreen({ route }) {
     }
   };
 
-  const selectUser = user => {
+  const selectUser = (user) => {
     const words = newComment.split(' ');
     words.pop();
     setNewComment([...words, `@${user.handle} `].join(' '));
@@ -81,47 +94,41 @@ export default function PostDetailScreen({ route }) {
 
     try {
       if (editingComment) {
-        const res = await api.patch(
-          `api/posts/comments/${editingComment.id}/`,
-          {
-            content: trimmedComment,
-          },
-        );
-        setComments(prev =>
-          prev.map(c => (c.id === editingComment.id ? res.data : c)),
+        const res = await api.patch(`api/posts/comments/${editingComment.id}/`, {
+          content: trimmedComment,
+        });
+        setComments((prev) =>
+          prev.map((c) => (c.id === editingComment.id ? res.data : c))
         );
         setEditingComment(null);
       } else {
-        // 🚀 THE FIX: Match the working payload by adding 'post: postId'
         const res = await api.post(`api/posts/${postId}/comments/`, {
           content: trimmedComment,
-          post: postId, // Add this line
+          post: postId,
         });
 
-        setComments(prev => [res.data, ...prev]);
-        setPost(prev => ({
+        setComments((prev) => [res.data, ...prev]);
+        setPost((prev) => ({
           ...prev,
-          comments_count: (prev.comments_count || 0) + 1,
+          comments_count: (prev?.comments_count || 0) + 1,
         }));
       }
       setNewComment('');
     } catch (e) {
-      console.log(
-        'Post detail comment error:',
-        JSON.stringify(e.response?.data || e.message, null, 2),
-      );
+      console.log('Comment error:', e.response?.data || e.message);
       Alert.alert('Error', 'Failed to post comment.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (loading)
+  if (loading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#1E90FF" />
       </View>
     );
+  }
 
   return (
     <View style={styles.container}>
@@ -132,16 +139,16 @@ export default function PostDetailScreen({ route }) {
       >
         <FlatList
           data={comments}
-          keyExtractor={item => item.id.toString()}
+          keyExtractor={(item) => item.id.toString()}
           ListHeaderComponent={() => post && <PostCard post={post} />}
           renderItem={({ item }) => (
             <CommentItem
               comment={item}
               postAuthorId={post?.author_details?.id}
-              onDeleteSuccess={id =>
-                setComments(prev => prev.filter(c => c.id !== id))
+              onDeleteSuccess={(id) =>
+                setComments((prev) => prev.filter((c) => c.id !== id))
               }
-              onEditPress={c => {
+              onEditPress={(c) => {
                 setEditingComment(c);
                 setNewComment(c.content);
               }}
@@ -149,10 +156,10 @@ export default function PostDetailScreen({ route }) {
           )}
         />
 
-        {/* 🚀 MENTION SUGGESTIONS OVERLAY */}
+        {/* Mentions Suggestions */}
         {showSuggestions && (
           <View style={styles.suggestions}>
-            {filteredUsers.map(user => (
+            {filteredUsers.map((user) => (
               <TouchableOpacity
                 key={user.id}
                 style={styles.sugItem}
