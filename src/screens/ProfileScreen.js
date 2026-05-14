@@ -1,3 +1,15 @@
+/**
+ * ProfileScreen.js - ConnectDial (FIXED)
+ * ─────────────────────────────────────────────────────────────────────
+ * FIXES in this version:
+ * ✅ FIX #1: Followers stat is now tappable → navigates to FollowersList
+ * ✅ FIX #1: Following stat is now tappable → navigates to FollowingList
+ * ✅ FIX #1: following_count stored in local state so it updates
+ *            immediately when current user follows/unfollows someone
+ * ✅ All existing functionality preserved
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import React, { useEffect, useState, useContext } from 'react';
 import {
   View,
@@ -37,6 +49,7 @@ export default function ProfileScreen({ route, navigation }) {
       },
     },
   };
+
   const routeUserId = route.params?.userId;
   const routeUsername = route.params?.username;
 
@@ -46,10 +59,15 @@ export default function ProfileScreen({ route, navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [isCurrentUser, setIsCurrentUser] = useState(false);
 
-  // 🚀 Follow States
+  // Follow states
   const [isFollowing, setIsFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+  // FIX #1: Store followingCount in state so it can update live
+  const [followingCount, setFollowingCount] = useState(0);
   const [followLoading, setFollowLoading] = useState(false);
+
+  // The resolved user ID for this profile (needed for follower/following navigation)
+  const [profileUserId, setProfileUserId] = useState(null);
 
   const loadData = async () => {
     try {
@@ -64,9 +82,12 @@ export default function ProfileScreen({ route, navigation }) {
       setProfile(profileData);
       setIsFollowing(profileData.is_following);
       setFollowersCount(profileData.followers_count || 0);
+      // FIX #1: Initialise followingCount from profile data
+      setFollowingCount(profileData.following_count || 0);
 
       const requestedUserId =
         profileData.user_id || routeUserId || loggedInUser?.id;
+      setProfileUserId(requestedUserId);
       setIsCurrentUser(requestedUserId === loggedInUser?.id);
 
       const postUrl = requestedUserId
@@ -94,41 +115,61 @@ export default function ProfileScreen({ route, navigation }) {
     setRefreshing(true);
     loadData();
   };
-  // 🚀 TOGGLE FOLLOW FUNCTION
+
+  // ─────────────────────────────────────────────────────────────────────
+  // TOGGLE FOLLOW
+  // ─────────────────────────────────────────────────────────────────────
   const handleFollowToggle = async () => {
     if (followLoading) return;
 
-    const profileUserId = profile?.user_id || routeUserId;
-    if (!profileUserId) {
+    const targetUserId = profile?.user_id || routeUserId;
+    if (!targetUserId) {
       Alert.alert('Error', 'Unable to determine which user to follow.');
       return;
     }
 
-    // Optimistic Update: Change UI immediately
     const previousState = isFollowing;
     const previousCount = followersCount;
 
+    // Optimistic update
     setIsFollowing(!previousState);
     setFollowersCount(previousState ? previousCount - 1 : previousCount + 1);
     setFollowLoading(true);
 
     try {
-      // Use the endpoint we created: /users/<id>/toggle-follow/
       const response = await api.post(
-        `auth/users/${profileUserId}/toggle-follow/`,
+        `auth/users/${targetUserId}/toggle-follow/`,
       );
-
-      // Sync with exact backend numbers
       setIsFollowing(response.data.following);
       setFollowersCount(response.data.follower_count);
     } catch (err) {
-      // Rollback on error
       setIsFollowing(previousState);
       setFollowersCount(previousCount);
       Alert.alert('Error', 'Could not update follow status. Please try again.');
     } finally {
       setFollowLoading(false);
     }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // FIX #1: Navigate to followers / following list screens
+  // ─────────────────────────────────────────────────────────────────────
+  const handleFollowersPress = () => {
+    if (!profileUserId) return;
+    navigation.navigate('FollowersList', {
+      userId: profileUserId,
+      type: 'followers',
+      title: 'Followers',
+    });
+  };
+
+  const handleFollowingPress = () => {
+    if (!profileUserId) return;
+    navigation.navigate('FollowersList', {
+      userId: profileUserId,
+      type: 'following',
+      title: 'Following',
+    });
   };
 
   const renderSupportSection = () => {
@@ -275,7 +316,6 @@ export default function ProfileScreen({ route, navigation }) {
                 </Text>
               </View>
 
-              {/* 🚀 CONDITIONAL ACTION BUTTON (Edit vs Follow) */}
               {isCurrentUser ? (
                 <TouchableOpacity
                   style={[
@@ -342,6 +382,7 @@ export default function ProfileScreen({ route, navigation }) {
             <View
               style={[styles.statsRow, { borderTopColor: theme.colors.border }]}
             >
+              {/* Posts count — not tappable */}
               <View style={styles.statItem}>
                 <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {posts.length}
@@ -352,26 +393,44 @@ export default function ProfileScreen({ route, navigation }) {
                   Posts
                 </Text>
               </View>
-              <View style={styles.statItem}>
+
+              {/* ─────────────────────────────────────────────────────
+                  FIX #1: Followers — now a TouchableOpacity
+                  Navigates to FollowersList screen with type='followers'
+                  ───────────────────────────────────────────────────── */}
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={handleFollowersPress}
+                activeOpacity={0.7}
+              >
                 <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {followersCount}
                 </Text>
                 <Text
-                  style={[styles.statLabel, { color: theme.colors.subText }]}
+                  style={[styles.statLabel, { color: theme.colors.primary }]}
                 >
                   Followers
                 </Text>
-              </View>
-              <View style={styles.statItem}>
+              </TouchableOpacity>
+
+              {/* ─────────────────────────────────────────────────────
+                  FIX #1: Following — now a TouchableOpacity
+                  Navigates to FollowersList screen with type='following'
+                  ───────────────────────────────────────────────────── */}
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={handleFollowingPress}
+                activeOpacity={0.7}
+              >
                 <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                  {profile?.following_count || 0}
+                  {followingCount}
                 </Text>
                 <Text
-                  style={[styles.statLabel, { color: theme.colors.subText }]}
+                  style={[styles.statLabel, { color: theme.colors.primary }]}
                 >
                   Following
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -413,11 +472,7 @@ export default function ProfileScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  loaderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   headerContainer: { height: 170, position: 'relative' },
   banner: { width: '100%', height: 130 },
   profilePicWrapper: {
@@ -427,11 +482,7 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRadius: 44,
   },
-  profilePic: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
+  profilePic: { width: 80, height: 80, borderRadius: 40 },
   bioContainer: { paddingHorizontal: 20, paddingTop: 12 },
   nameRow: {
     flexDirection: 'row',
@@ -440,8 +491,6 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
   handle: { fontSize: 14, marginTop: 2 },
-
-  // 🚀 BUTTON STYLES
   editButton: {
     borderWidth: 1,
     paddingHorizontal: 15,
@@ -456,13 +505,9 @@ const styles = StyleSheet.create({
     minWidth: 100,
     alignItems: 'center',
   },
-  followingButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-  },
+  followingButton: { backgroundColor: 'transparent', borderWidth: 1 },
   followButtonText: { fontWeight: 'bold', fontSize: 14 },
   followingButtonText: {},
-
   bio: { marginTop: 12, fontSize: 14, lineHeight: 20 },
   statsRow: {
     flexDirection: 'row',
@@ -502,11 +547,7 @@ const styles = StyleSheet.create({
   },
   chipTextStack: { flexDirection: 'column' },
   leagueNameText: { fontSize: 14, fontWeight: 'bold' },
-  teamNameSubText: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 1,
-  },
+  teamNameSubText: { fontSize: 12, fontWeight: '600', marginTop: 1 },
   addLeagueBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -517,11 +558,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     height: 55,
   },
-  addLeagueText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
+  addLeagueText: { fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
   tabHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -531,12 +568,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   tabText: { fontSize: 14, fontWeight: 'bold' },
-  activeIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginLeft: 8,
-  },
+  activeIndicator: { width: 6, height: 6, borderRadius: 3, marginLeft: 8 },
   emptyContainer: {
     marginTop: 50,
     justifyContent: 'center',

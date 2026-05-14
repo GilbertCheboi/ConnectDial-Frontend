@@ -1,5 +1,11 @@
-import React, { useContext, useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+/**
+ * AppNavigator.js - UPDATED VERSION
+ * Integrates toast notifications and push notifications
+ * Location: src/navigation/AppNavigator.js (REPLACE your current one)
+ */
+
+import React, { useContext, useEffect, useRef } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import {
   NavigationContainer,
   useNavigationContainerRef,
@@ -12,17 +18,25 @@ import api from '../api/client';
 // Contexts
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
-import { NotificationProvider } from '../store/NotificationContext';
+import { NotificationProvider, useNotifications } from '../store/NotificationContext';
 import { FollowProvider } from '../store/FollowContext';
+import { ToastProvider } from '../store/ToastContext';
 
 // Navigators
 import AuthNavigator from '../api/AuthNavigator';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 import MainStackNavigator from './MainStackNavigator';
 
-export default function AppNavigator() {
-  const { user, loading, isNew } = useContext(AuthContext); // ← Fixed: using isNew
+// Components
+import { ToastContainer } from '../components/ToastContainer';
+
+/**
+ * Inner navigator component that uses all contexts
+ */
+function AppNavigatorContent() {
+  const { user, loading, isNew } = useContext(AuthContext);
   const themeContext = useContext(ThemeContext) || {};
+  const { setupPushNotifications } = useNotifications();
 
   const themeName = themeContext.themeName || 'dark';
   const theme = themeContext.theme || {
@@ -38,26 +52,17 @@ export default function AppNavigator() {
 
   const themeLoading = themeContext.loading || false;
   const navigationRef = useNavigationContainerRef();
+  const setupDone = useRef(false);
 
-  // Handle deep linking from notifications
-  const handleNotificationNavigation = data => {
-    if (!data?.type || !data?.id) return;
-    if (navigationRef.isReady()) {
-      if (['like', 'comment', 'repost'].includes(data.type)) {
-        navigationRef.navigate('PostDetail', { postId: data.id });
-      } else if (data.type === 'follow') {
-        navigationRef.navigate('Profile', { userId: data.id });
-      }
-    }
-  };
-
-  // FCM Token Sync
-  const saveTokenToBackend = async fcmToken => {
+  /**
+   * Save FCM Token to Backend
+   */
+  const saveTokenToBackend = async (fcmToken) => {
     if (!user?.token) return;
     try {
-      console.log('📱 Syncing FCM Token to Backend via api client:', fcmToken);
+      console.log('📱 Syncing FCM Token to Backend:', fcmToken);
       await api.patch('auth/update/', { fcm_token: fcmToken });
-      console.log('✅ FCM Token successfully linked to profile');
+      console.log('✅ FCM Token successfully synced');
     } catch (error) {
       console.error(
         '❌ FCM Sync Error:',
@@ -66,63 +71,61 @@ export default function AppNavigator() {
     }
   };
 
+  /**
+   * Setup Firebase Messaging
+   */
   useEffect(() => {
-    const setupMessaging = async () => {
-      if (!user?.token) return;
+    if (!user?.token || setupDone.current) return;
+
+    const initializeMessaging = async () => {
       try {
-        const msg = messaging(); // ✅ default app, simpler and correct
+        const msg = messaging();
+
+        // Request permission (iOS)
         const authStatus = await msg.requestPermission();
         const enabled =
           authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
           authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
-        if (enabled) {
-          const currentToken = await msg.getToken();
-          await saveTokenToBackend(currentToken);
+        if (!enabled) {
+          console.log('⚠️ Notifications disabled by user');
+          return;
         }
-      } catch (err) {
-        console.error('Messaging setup failed:', err);
+
+        // Get and save FCM token
+        const fcmToken = await msg.getToken();
+        if (fcmToken) {
+          console.log('✅ FCM Token:', fcmToken);
+          await saveTokenToBackend(fcmToken);
+        }
+
+        // Setup push notification handlers
+        if (navigationRef.isReady()) {
+          setupPushNotifications(navigationRef);
+          setupDone.current = true;
+        }
+      } catch (error) {
+        console.error('❌ Firebase setup failed:', error);
       }
     };
 
-    setupMessaging();
+    initializeMessaging();
+  }, [user?.token, setupPushNotifications, navigationRef]);
 
-    // Notification Handlers — msg instance for subscriptions
-    const msg = messaging(); // ✅ use default app instance (no getApp() needed here)
-    const unsubscribeOnNotificationOpened = msg.onNotificationOpenedApp(
-      remoteMessage => handleNotificationNavigation(remoteMessage.data),
-    );
+  /**
+   * Token Refresh Listener
+   */
+  useEffect(() => {
+    if (!user?.token) return;
 
-    msg.getInitialNotification().then(remoteMessage => {
-      if (remoteMessage) {
-        setTimeout(() => handleNotificationNavigation(remoteMessage.data), 800);
-      }
-    });
-
-    const unsubscribeOnMessage = msg.onMessage(async remoteMessage => {
-      Alert.alert(
-        remoteMessage.notification?.title || 'New Notification',
-        remoteMessage.notification?.body || 'You have a new message!',
-        [
-          {
-            text: 'View',
-            onPress: () => handleNotificationNavigation(remoteMessage.data),
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ],
-      );
-    });
-
-    const onTokenRefresh = msg.onTokenRefresh(fcmToken => {
+    const msg = messaging();
+    const unsubscribe = msg.onTokenRefresh((fcmToken) => {
+      console.log('🔄 FCM Token refreshed');
       saveTokenToBackend(fcmToken);
     });
 
-    return () => {
-      unsubscribeOnNotificationOpened();
-      unsubscribeOnMessage();
-      onTokenRefresh();
-    };
-  }, [user?.access, handleNotificationNavigation, saveTokenToBackend]);
+    return unsubscribe;
+  }, [user?.token]);
 
   // Loading Screen
   if (loading || themeLoading) {
@@ -162,21 +165,35 @@ export default function AppNavigator() {
         };
 
   return (
-    <NotificationProvider>
-      <FollowProvider>
-        <NavigationContainer ref={navigationRef} theme={navigationTheme}>
-          {user ? (
-            isNew ? ( // ← Now correctly using isNew
-              <OnboardingNavigator />
-            ) : (
-              <MainStackNavigator />
-            )
+    <>
+      <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+        {user ? (
+          isNew ? (
+            <OnboardingNavigator />
           ) : (
-            <AuthNavigator />
-          )}
-        </NavigationContainer>
-      </FollowProvider>
-    </NotificationProvider>
+            <MainStackNavigator />
+          )
+        ) : (
+          <AuthNavigator />
+        )}
+      </NavigationContainer>
+      <ToastContainer />
+    </>
+  );
+}
+
+/**
+ * Main AppNavigator with all providers
+ */
+export default function AppNavigator() {
+  return (
+    <ToastProvider>
+      <NotificationProvider>
+        <FollowProvider>
+          <AppNavigatorContent />
+        </FollowProvider>
+      </NotificationProvider>
+    </ToastProvider>
   );
 }
 
