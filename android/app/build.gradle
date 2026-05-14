@@ -32,7 +32,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // ✅ Bump versionCode every time you upload to Play Store
-        versionCode 9
+        versionCode 10
         versionName "2.1.1"
 
         // ✅ Keeps only your app's language resources (reduces APK size)
