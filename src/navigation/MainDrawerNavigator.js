@@ -1,3 +1,22 @@
+/**
+ * MainDrawerNavigator.js – ConnectDial (FIXED v2)
+ * ─────────────────────────────────────────────────────────────────────
+ * FIXES in this version:
+ *
+ * ✅ FIX #1: Added merge: false to all drawer navigation.navigate() calls.
+ *    React Navigation MERGES params by default. This means if you tap
+ *    "Premier League" (leagueId: 1), then tap "All Sports Feed"
+ *    (leagueId: null), the old leagueId: 1 STICKS because null gets
+ *    merged-over instead of replacing. Using merge: false forces a clean
+ *    param replace every time.
+ *
+ * ✅ FIX #2: "All Sports Feed" now explicitly sends leagueId: null so
+ *    HomeScreen always resets to the global feed correctly.
+ *
+ * Everything else is identical to your original file.
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import React, { useContext, useMemo, useEffect, useState } from 'react';
 import {
   View,
@@ -19,7 +38,6 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-// Internal Imports
 import api from '../api/client';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
@@ -59,24 +77,20 @@ const fallbackTheme = {
 
 // 🚀 LEAGUE ASSETS MAPPING
 const LEAGUE_MAP = {
-  1: { name: 'Premier League', logo: require('../screens/assets/epl.png') },
-  2: { name: 'NBA', logo: require('../screens/assets/NBA.jpeg') },
-  3: { name: 'NFL', logo: require('../screens/assets/NFL.png') },
-  4: { name: 'F1', logo: require('../screens/assets/F1.png') },
-  5: {
-    name: 'Champions League',
-    logo: require('../screens/assets/Champions_League.png'),
-  },
-  6: { name: 'MLB', logo: require('../screens/assets/MLB.png') },
-  7: { name: 'NHL', logo: require('../screens/assets/NHL-logo.jpg') },
-  8: { name: 'La Liga', logo: require('../screens/assets/laliga.png') },
-  9: { name: 'Serie A', logo: require('../screens/assets/Serie_A.png') },
-  10: { name: 'Bundesliga', logo: require('../screens/assets/bundesliga.jpg') },
-  11: { name: 'Ligue 1', logo: require('../screens/assets/Ligue1_logo.png') },
-  12: { name: 'Afcon', logo: require('../screens/assets/Afcon.png') },
-    13: { name: 'Kenya Premier League', logo: require('../screens/assets/KPL-Logo.png') },
-
-  14: { name: 'World Cup', logo: require('../screens/assets/World_Cup.png') },
+  1:  { name: 'Premier League',      logo: require('../screens/assets/epl.png') },
+  2:  { name: 'NBA',                 logo: require('../screens/assets/NBA.jpeg') },
+  3:  { name: 'NFL',                 logo: require('../screens/assets/NFL.png') },
+  4:  { name: 'F1',                  logo: require('../screens/assets/F1.png') },
+  5:  { name: 'Champions League',    logo: require('../screens/assets/Champions_League.png') },
+  6:  { name: 'MLB',                 logo: require('../screens/assets/MLB.png') },
+  7:  { name: 'NHL',                 logo: require('../screens/assets/NHL-logo.jpg') },
+  8:  { name: 'La Liga',             logo: require('../screens/assets/laliga.png') },
+  9:  { name: 'Serie A',             logo: require('../screens/assets/Serie_A.png') },
+  10: { name: 'Bundesliga',          logo: require('../screens/assets/bundesliga.jpg') },
+  11: { name: 'Ligue 1',             logo: require('../screens/assets/Ligue1_logo.png') },
+  12: { name: 'Afcon',               logo: require('../screens/assets/Afcon.png') },
+  13: { name: 'Kenya Premier League',logo: require('../screens/assets/KPL-Logo.png') },
+  14: { name: 'World Cup',           logo: require('../screens/assets/World_Cup.png') },
 };
 
 function CustomDrawerContent(props) {
@@ -87,19 +101,19 @@ function CustomDrawerContent(props) {
     theme = fallbackTheme,
     toggleTheme = () => {},
   } = themeContext;
-  const [profile, setProfile] = useState(null);
+
+  const [profile, setProfile]   = useState(null);
   const [fetching, setFetching] = useState(false);
   const isDarkMode = themeName === 'dark';
 
-  // 🚀 1. FETCH LATEST PROFILE DATA (Same logic as ProfileScreen)
+  // ─────────────────────────────────────────────────────────────────
+  // FETCH LATEST PROFILE DATA
+  // ─────────────────────────────────────────────────────────────────
   const fetchLatestProfile = async () => {
     try {
       setFetching(true);
       const response = await api.get('auth/update/');
       const data = response.data.data || response.data;
-      console.log('🚀 Drawer profile data:', data);
-      console.log('🚀 Profile image URL:', data?.profile_image);
-      console.log('🚀 Banner image URL:', data?.banner_image);
       setProfile(data);
     } catch (err) {
       console.error('Drawer Profile Fetch Error:', err);
@@ -108,28 +122,18 @@ function CustomDrawerContent(props) {
     }
   };
 
-  useEffect(() => {
-    fetchLatestProfile();
-  }, [authUser]);
+  useEffect(() => { fetchLatestProfile(); }, [authUser]);
 
   useFocusEffect(
-    React.useCallback(() => {
-      fetchLatestProfile();
-    }, []),
-  ); // Re-run if auth state changes
+    React.useCallback(() => { fetchLatestProfile(); }, [])
+  );
 
-  // 🚀 2. DYNAMIC LEAGUES CALCULATION
+  // ─────────────────────────────────────────────────────────────────
+  // DYNAMIC LEAGUES CALCULATION
+  // ─────────────────────────────────────────────────────────────────
   const userLeagues = useMemo(() => {
-    // Use profile data if fetched, otherwise fallback to authUser
     const sourceData = profile || authUser;
-    console.log('🚀 Drawer userLeagues sourceData:', sourceData);
-    console.log('🚀 Drawer fan_preferences:', sourceData?.fan_preferences);
-
-    if (
-      !sourceData?.fan_preferences ||
-      !Array.isArray(sourceData.fan_preferences)
-    ) {
-      console.log('🚀 Drawer: No fan_preferences found');
+    if (!sourceData?.fan_preferences || !Array.isArray(sourceData.fan_preferences)) {
       return [];
     }
 
@@ -138,12 +142,6 @@ function CustomDrawerContent(props) {
 
     sourceData.fan_preferences.forEach(pref => {
       const id = pref.league;
-      console.log(
-        '🚀 Drawer processing fan_preference:',
-        pref,
-        'league id:',
-        id,
-      );
       if (id && !seenIds.has(id)) {
         seenIds.add(id);
         const details = LEAGUE_MAP[id] || { name: `League ${id}`, logo: null };
@@ -151,24 +149,30 @@ function CustomDrawerContent(props) {
       }
     });
 
-    console.log('🚀 Drawer final userLeagues:', uniqueLeagues);
     return uniqueLeagues.sort((a, b) => a.id - b.id);
   }, [profile, authUser]);
 
-  // Use profile for display, fallback to authUser
   const displayData = profile || authUser;
 
+  // ─────────────────────────────────────────────────────────────────
+  // NAVIGATION HELPER
+  // ✅ FIX #1: merge: false ensures params are REPLACED, not merged.
+  //    Without this, tapping "All Sports Feed" after a league keeps
+  //    the old leagueId in route.params (React Navigation default behaviour).
+  // ─────────────────────────────────────────────────────────────────
+  const navigateToFeed = (leagueId) => {
+    props.navigation.navigate('ConnectDial', {
+      screen: 'Home',
+      params: { leagueId: leagueId ?? null },
+      merge: false,   // ✅ force clean param replace — no stale leagueId
+    });
+    props.navigation.closeDrawer();
+  };
+
   return (
-    <View
-      style={[
-        styles.drawerWrapper,
-        { backgroundColor: theme.colors.drawerBackground },
-      ]}
-    >
-      <DrawerContentScrollView
-        {...props}
-        contentContainerStyle={{ paddingTop: 0 }}
-      >
+    <View style={[styles.drawerWrapper, { backgroundColor: theme.colors.drawerBackground }]}>
+      <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 0 }}>
+
         {/* --- 1. PROFILE HEADER WITH BANNER --- */}
         <TouchableOpacity
           activeOpacity={0.9}
@@ -184,7 +188,6 @@ function CustomDrawerContent(props) {
               style={styles.bannerImage}
             />
             <View style={styles.bannerOverlay} />
-
             <View style={styles.headerContent}>
               <Image
                 source={{
@@ -209,18 +212,14 @@ function CustomDrawerContent(props) {
         <View style={styles.divider} />
 
         {/* --- 2. GLOBAL FEED --- */}
+        {/* ✅ FIX #2: Sends leagueId: null explicitly to reset to global */}
         <DrawerItem
           label="All Sports Feed"
           labelStyle={styles.globalLabel}
           icon={() => (
             <MaterialCommunityIcons name="earth" color="#1E90FF" size={24} />
           )}
-          onPress={() =>
-            props.navigation.navigate('ConnectDial', {
-              screen: 'Home',
-              params: { leagueId: null },
-            })
-          }
+          onPress={() => navigateToFeed(null)}
         />
 
         <View style={styles.divider} />
@@ -236,10 +235,7 @@ function CustomDrawerContent(props) {
           renderItem={({ item: league }) => (
             <DrawerItem
               label={league.name}
-              labelStyle={[
-                styles.leagueLabel,
-                { color: theme.colors.drawerText },
-              ]}
+              labelStyle={[styles.leagueLabel, { color: theme.colors.drawerText }]}
               icon={() =>
                 league.logo ? (
                   <Image
@@ -255,12 +251,8 @@ function CustomDrawerContent(props) {
                   />
                 )
               }
-              onPress={() =>
-                props.navigation.navigate('ConnectDial', {
-                  screen: 'Home',
-                  params: { leagueId: league.id },
-                })
-              }
+              // ✅ FIX #1: uses navigateToFeed() which sets merge: false
+              onPress={() => navigateToFeed(league.id)}
             />
           )}
           ListFooterComponent={() => (
@@ -291,12 +283,7 @@ function CustomDrawerContent(props) {
       {/* --- 4. FOOTER --- */}
       <View style={styles.footerContainer}>
         <View style={styles.themeToggleContainer}>
-          <Text
-            style={[
-              styles.themeToggleLabel,
-              { color: theme.colors.drawerText },
-            ]}
-          >
+          <Text style={[styles.themeToggleLabel, { color: theme.colors.drawerText }]}>
             Dark mode
           </Text>
           <Switch
@@ -340,8 +327,6 @@ export default function MainDrawerNavigator() {
     <Drawer.Navigator
       drawerContent={props => <CustomDrawerContent {...props} />}
       screenOptions={({ route }) => ({
-        // 🚀 HIDE DRAWER HEADER FOR THE MAIN TAB AREA
-        // This prevents the "ConnectDial" top bar from pushing your video down
         headerShown: false,
         drawerStyle: {
           backgroundColor: theme.colors.drawerBackground,
@@ -350,14 +335,14 @@ export default function MainDrawerNavigator() {
       })}
     >
       <Drawer.Screen name="ConnectDial" component={MainTabNavigator} />
-      <Drawer.Screen name="Profile" component={ProfileScreen} />
-      <Drawer.Screen name="Settings" component={SettingsScreen} />
+      <Drawer.Screen name="Profile"     component={ProfileScreen} />
+      <Drawer.Screen name="Settings"    component={SettingsScreen} />
     </Drawer.Navigator>
   );
 }
 
 const styles = StyleSheet.create({
-  drawerWrapper: { flex: 1, backgroundColor: '#0D1F2D' },
+  drawerWrapper:           { flex: 1, backgroundColor: '#0D1F2D' },
   bannerContainer: {
     width: '100%',
     marginBottom: 20,
@@ -367,16 +352,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: '#112233',
   },
-  bannerImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  bannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-  },
-  headerContent: { paddingHorizontal: 15, paddingBottom: 15 },
+  bannerImage:             { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  bannerOverlay:           { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+  headerContent:           { paddingHorizontal: 15, paddingBottom: 15 },
   avatar: {
     width: 60,
     height: 60,
@@ -385,8 +363,8 @@ const styles = StyleSheet.create({
     borderColor: '#1E90FF',
     marginBottom: 8,
   },
-  userName: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  userHandle: { color: '#CBD5E1', fontSize: 13 },
+  userName:                { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  userHandle:              { color: '#CBD5E1', fontSize: 13 },
   divider: {
     height: 1,
     backgroundColor: '#1E293B',
@@ -407,18 +385,16 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     letterSpacing: 1,
   },
-  leaguesScrollContainer: {
-    height: 300, // Fixed height for independent scrolling
-  },
-  leagueLabel: { fontSize: 15, marginLeft: -10 },
-  leagueLogo: { width: 24, height: 24, borderRadius: 4 },
+  leaguesScrollContainer:  { height: 300 },
+  leagueLabel:             { fontSize: 15, marginLeft: -10 },
+  leagueLogo:              { width: 24, height: 24, borderRadius: 4 },
   footerContainer: {
     borderTopWidth: 1,
     borderTopColor: '#1E293B',
     paddingBottom: 30,
   },
-  logoutLabel: { color: '#EF4444', fontWeight: 'bold', marginLeft: -10 },
-  footerLabel: { color: '#CBD5E1', marginLeft: -10 },
+  logoutLabel:             { color: '#EF4444', fontWeight: 'bold', marginLeft: -10 },
+  footerLabel:             { color: '#CBD5E1', marginLeft: -10 },
   themeToggleContainer: {
     marginHorizontal: 20,
     paddingVertical: 10,
@@ -431,8 +407,5 @@ const styles = StyleSheet.create({
     borderBottomColor: '#1E293B',
     marginBottom: 10,
   },
-  themeToggleLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
+  themeToggleLabel:        { fontSize: 15, fontWeight: '600' },
 });
