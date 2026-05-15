@@ -129,6 +129,25 @@ function CustomDrawerContent(props) {
   );
 
   // ─────────────────────────────────────────────────────────────────
+  // CURRENT ACTIVE LEAGUE FROM NAVIGATION STATE
+  // ─────────────────────────────────────────────────────────────────
+  const currentLeagueId = useMemo(() => {
+    const connectDialRoute = props.state?.routes?.find(r => r.name === 'ConnectDial');
+    const connectDialState = connectDialRoute?.state;
+    if (!connectDialState?.routes) return null;
+
+    const homeRoute = connectDialState.routes.find(r => r.name === 'Home');
+    if (homeRoute?.params?.leagueId !== undefined) {
+      return homeRoute.params.leagueId;
+    }
+
+    const nestedHomeRoute = connectDialState.routes
+      .flatMap(r => (r.state?.routes || []))
+      .find(r => r.name === 'Home');
+    return nestedHomeRoute?.params?.leagueId ?? null;
+  }, [props.state]);
+
+  // ─────────────────────────────────────────────────────────────────
   // DYNAMIC LEAGUES CALCULATION
   // ─────────────────────────────────────────────────────────────────
   const userLeagues = useMemo(() => {
@@ -216,6 +235,7 @@ function CustomDrawerContent(props) {
         <DrawerItem
           label="All Sports Feed"
           labelStyle={styles.globalLabel}
+          style={currentLeagueId === null ? styles.highlightedLeague : null}
           icon={() => (
             <MaterialCommunityIcons name="earth" color="#1E90FF" size={24} />
           )}
@@ -236,6 +256,7 @@ function CustomDrawerContent(props) {
             <DrawerItem
               label={league.name}
               labelStyle={[styles.leagueLabel, { color: theme.colors.drawerText }]}
+              style={league.id === currentLeagueId ? styles.highlightedLeague : null}
               icon={() =>
                 league.logo ? (
                   <Image
@@ -251,7 +272,6 @@ function CustomDrawerContent(props) {
                   />
                 )
               }
-              // ✅ FIX #1: uses navigateToFeed() which sets merge: false
               onPress={() => navigateToFeed(league.id)}
             />
           )}
@@ -388,6 +408,7 @@ const styles = StyleSheet.create({
   leaguesScrollContainer:  { height: 300 },
   leagueLabel:             { fontSize: 15, marginLeft: -10 },
   leagueLogo:              { width: 24, height: 24, borderRadius: 4 },
+  highlightedLeague:       { backgroundColor: 'rgba(30, 144, 255, 0.15)' },
   footerContainer: {
     borderTopWidth: 1,
     borderTopColor: '#1E293B',
