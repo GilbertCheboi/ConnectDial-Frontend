@@ -319,10 +319,17 @@ const QuoteHeader = ({ originalData, theme }) => {
             {'  '}@{origAuthor.username}
           </Text>
         </View>
-        {/* FIX #2 also applies here: support line is PRIMARY colour (blue) */}
-        <Text style={[styles.quoteSupportLine, { color: theme.colors.primary }]} numberOfLines={1}>
-          {supportLine}
-        </Text>
+        {/* FIX #2 also applies here: 'Supports' follows theme text color, team name stays blue */}
+        {origSupport?.team_name ? (
+          <Text style={styles.quoteSupportLine} numberOfLines={1}>
+            <Text style={{ color: theme.colors.text }}>Supports </Text>
+            <Text style={{ color: theme.colors.primary }}>{origSupport.team_name}</Text>
+          </Text>
+        ) : (
+          <Text style={[styles.quoteSupportLine, { color: theme.colors.text }]} numberOfLines={1}>
+            {supportLine}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -364,19 +371,19 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, hideFoll
   const originalData = post.original_post;
   const isSimpleRepost = !!originalData && !post.content;
   const author = post.author_details;
+  const authorId = Number(author?.id);
   const support = post.supporting_info;
-  const isOwner = user?.id === author?.id;
+  const isOwner = user?.id === authorId;
 
   // ─── FIX #1: Follow state ───────────────────────────────────────────
   // Priority order:
-  //   1. FollowContext (most up-to-date across the session)
-  //   2. post.author_details.is_following (from server, correct on first load)
-  // Removed the broken `!followingIds.has(-author?.id)` check that was
-  // always true and caused the button to reset to "Follow" on app reopen.
-  const isFollowing = followingIds.has(author?.id)
-    ? true
-    : followingIds.has(-(author?.id))   // -id means "explicitly unfollowed this session"
+  //   1. Explicit unfollow sentinel stored in FollowContext
+  //   2. FollowContext current following IDs
+  //   3. post.author_details.is_following (from server, correct on first load)
+  const isFollowing = followingIds.has(-authorId)
     ? false
+    : followingIds.has(authorId)
+    ? true
     : (author?.is_following ?? false);  // fall back to server value
 
   const [liked, setLiked] = useState(post.liked_by_me || false);
@@ -660,16 +667,17 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, hideFoll
                   />
                 )}
               </View>
-              {/* ── FIX #2: Support line is now PRIMARY (blue) ── */}
-              <Text
-                style={[styles.supportStatus, { color: theme.colors.primary }]}
-              >
-                {support
-                  ? `Supports ${support.team_name}`
-                  : author?.account_type === 'news'
-                  ? 'News / Media'
-                  : 'Sports Fan'}
-              </Text>
+              {/* ── FIX #2: 'Supports' text uses theme text; team name stays blue */}
+              {support ? (
+                <Text style={styles.supportStatus}>
+                  <Text style={{ color: theme.colors.text }}>Supports </Text>
+                  <Text style={{ color: theme.colors.primary }}>{support.team_name}</Text>
+                </Text>
+              ) : (
+                <Text style={[styles.supportStatus, { color: theme.colors.text }]}> 
+                  {author?.account_type === 'news' ? 'News / Media' : 'Sports Fan'}
+                </Text>
+              )}
             </View>
           </TouchableOpacity>
 

@@ -92,44 +92,57 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   // INFINITE QUERY
   // ─────────────────────────────────────────────────────────────────────
   const {
-  data,
-  fetchNextPage,
-  hasNextPage,
-  isFetchingNextPage,
-  isLoading,
-  isRefetching,
-  error,
-  refetch,
-} = useInfiniteQuery({
-  queryKey: ['league-posts', leagueId, debouncedSearch],
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    isRefetching,
+    error,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey,
+    queryFn: async ({ pageParam = 0 }) => {
+      // ✅ FIX #9: Build the correct URL with feed_type and league_id.
+      //
+      //  Old (broken):
+      //    api/posts/?feed_type=following&limit=10&offset=0&league=3
+      //    → backend ignored everything, returned all posts
+      //
+      //  New (fixed):
+      //    api/posts/?feed_type=league&limit=10&offset=0&league_id=3
+      //    → backend filters by league_id correctly
+      //
+      // NOTE: The backend also supports the legacy &league= param name,
+      // but &league_id= is the canonical one used in get_queryset().
+      let url =
+        `api/posts/?feed_type=${effectiveFeedType}` +
+        `&limit=10&offset=${pageParam}`;
 
-  enabled: !!leagueId,
+      if (leagueId) {
+        url += `&league_id=${leagueId}`;
+      }
 
-  queryFn: async ({ pageParam = 0 }) => {
-    let url =
-      `api/posts/?feed_type=league` +
-      `&league_id=${leagueId}` +
-      `&limit=10&offset=${pageParam}`;
+      if (debouncedSearch) {
+        url += `&search=${encodeURIComponent(debouncedSearch)}`;
+      }
 
-    if (debouncedSearch) {
-      url += `&search=${encodeURIComponent(debouncedSearch)}`;
-    }
+      console.log('🔄 FeedList fetching:', url);
+      const response = await api.get(url);
+      return response.data;
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      const nextOffset = allPages.length * 10;
+      return nextOffset < (lastPage.count || 0) ? nextOffset : undefined;
+    },
+    initialPageParam: 0,
+    enabled: true,
 
-    console.log('🔄 League Feed fetching:', url);
-
-    const response = await api.get(url);
-    return response.data;
-  },
-
-  getNextPageParam: (lastPage, allPages) => {
-    const nextOffset = allPages.length * 10;
-    return nextOffset < (lastPage.count || 0)
-      ? nextOffset
-      : undefined;
-  },
-
-  initialPageParam: 0,
-});
+    // ── Cache-while-revalidate ────────────────────────────────────────
+    staleTime: 1000 * 60 * 2,   // 2 minutes fresh window
+    gcTime:    1000 * 60 * 30,  // 30 minutes in memory after unmount
+    refetchOnWindowFocus: true,
+  });
 
   // ─────────────────────────────────────────────────────────────────────
   // Silent background revalidation on screen focus

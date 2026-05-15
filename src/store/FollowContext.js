@@ -15,7 +15,7 @@ export const FollowProvider = ({ children }) => {
 
   const persistFollowingIds = async idsSet => {
     if (!user?.id) return;
-    const ids = [...idsSet].filter(id => typeof id === 'number' && id > 0);
+    const ids = [...idsSet].filter(id => typeof id === 'number');
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.FOLLOWING_IDS(user.id), JSON.stringify(ids));
     } catch (error) {
@@ -30,7 +30,7 @@ export const FollowProvider = ({ children }) => {
     setFollowingIds(prev => {
       const merged = new Set(prev);
       ids
-        .filter(id => typeof id === 'number' && id > 0)
+        .filter(id => typeof id === 'number')
         .forEach(id => merged.add(id));
       return merged;
     });
@@ -41,14 +41,17 @@ export const FollowProvider = ({ children }) => {
   //   unfollowed" sentinel so PostCard knows the user manually unfollowed
   //   this session (prevents falling back to stale server value).
   const updateFollowStatus = (userId, isFollowing) => {
+    const resolvedId = Number(userId);
+    if (Number.isNaN(resolvedId)) return;
+
     setFollowingIds(prev => {
       const newSet = new Set(prev);
       if (isFollowing) {
-        newSet.add(userId);
-        newSet.delete(-userId);
+        newSet.add(resolvedId);
+        newSet.delete(-resolvedId);
       } else {
-        newSet.delete(userId);
-        newSet.add(-userId);
+        newSet.delete(resolvedId);
+        newSet.add(-resolvedId);
       }
       persistFollowingIds(newSet);
       return newSet;
@@ -67,7 +70,7 @@ export const FollowProvider = ({ children }) => {
         if (!stored) return;
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          setFollowingIds(new Set(parsed.filter(id => typeof id === 'number' && id > 0)));
+          setFollowingIds(new Set(parsed.filter(id => typeof id === 'number')));
           console.log('✅ Loaded persisted following ids for user', user.id, parsed.length);
         }
       } catch (error) {
