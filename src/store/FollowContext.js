@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from './authStore';
 import client from '../api/client';
@@ -13,7 +13,7 @@ export const FollowProvider = ({ children }) => {
   const { user } = useContext(AuthContext);
   const [followingIds, setFollowingIds] = useState(new Set());
 
-  const persistFollowingIds = async idsSet => {
+  const persistFollowingIds = useCallback(async idsSet => {
     if (!user?.id) return;
     const ids = [...idsSet].filter(id => typeof id === 'number');
     try {
@@ -21,11 +21,8 @@ export const FollowProvider = ({ children }) => {
     } catch (error) {
       console.error('❌ Failed to persist following ids:', error);
     }
-  };
+  }, [user?.id]);
 
-  // ✅ FIX: Merges incoming ids into the existing set instead of replacing it.
-  // This prevents the Following tab and Global tab from wiping each other's data
-  // when both call setInitialFollowing on load.
   const setInitialFollowing = ids => {
     setFollowingIds(prev => {
       const merged = new Set(prev);
@@ -36,10 +33,6 @@ export const FollowProvider = ({ children }) => {
     });
   };
 
-  // updateFollowStatus(id, true)  → adds id to the set (following)
-  // updateFollowStatus(id, false) → removes id, adds -id as an "explicitly
-  //   unfollowed" sentinel so PostCard knows the user manually unfollowed
-  //   this session (prevents falling back to stale server value).
   const updateFollowStatus = (userId, isFollowing) => {
     const resolvedId = Number(userId);
     if (Number.isNaN(resolvedId)) return;
@@ -58,6 +51,7 @@ export const FollowProvider = ({ children }) => {
     });
   };
 
+  // Load persisted data (including negative sentinels)
   useEffect(() => {
     if (!user?.id) {
       setFollowingIds(new Set());
@@ -68,6 +62,7 @@ export const FollowProvider = ({ children }) => {
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEYS.FOLLOWING_IDS(user.id));
         if (!stored) return;
+
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
           setFollowingIds(new Set(parsed.filter(id => typeof id === 'number')));
@@ -81,6 +76,7 @@ export const FollowProvider = ({ children }) => {
     loadPersistedFollowing();
   }, [user?.id]);
 
+  // Fetch from server and merge while respecting local unfollows
   useEffect(() => {
     if (!user?.id) return;
 
@@ -93,16 +89,32 @@ export const FollowProvider = ({ children }) => {
           const res = await client.get(next);
           const data = res.data;
           const pageItems = Array.isArray(data) ? data : data.results || [];
+
           pageItems.forEach(item => {
             const id = item.user_id || item.id;
             if (typeof id === 'number') fetchedIds.push(id);
           });
+
           next = data.next || null;
         }
 
-        setInitialFollowing(fetchedIds);
-        persistFollowingIds(new Set(fetchedIds));
-        console.log('✅ FollowContext initialized with', fetchedIds.length, 'following relationships');
+        // ✅ FIXED: Merge server data but respect explicit unfollows (-id)
+        setFollowingIds(prev => {
+          const newSet = new Set(prev);
+
+          fetchedIds.forEach(id => {
+            const negativeId = -id;
+            // Only add positive ID if user didn't explicitly unfollow this session
+            if (!newSet.has(negativeId)) {
+              newSet.add(id);
+              newSet.delete(negativeId);
+            }
+          });
+
+          persistFollowingIds(newSet);
+          console.log('✅ Merged server following list with', fetchedIds.length, 'items');
+          return newSet;
+        });
       } catch (error) {
         console.error('❌ Failed to initialize following list:', error);
       }
