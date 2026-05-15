@@ -243,6 +243,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
           post={item}
           // On the Following tab, hide the "Follow" button only.
           // The "Following" button stays visible so users can still unfollow.
+          feedType={feedType}           // ← Add this line
           hideFollow={feedType === 'following'}
           onDeleteSuccess={() => {
             queryClient.invalidateQueries({ queryKey });

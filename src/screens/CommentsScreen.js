@@ -154,9 +154,9 @@ export default function CommentsScreen({ route, navigation }) {
       } else if (replyingTo) {
         // REPLY — post as a new comment; backend links via parent_comment if
         // you pass it, otherwise it lands as a top-level comment with @mention
-        const payload = { content: trimmed };
-        if (replyingTo.id) {
-          payload.parent_comment = replyingTo.id;
+        const payload = { content: trimmed , post: postId,                   };
+        if (replyingTo?.id) {
+            payload.parent_comment = replyingTo.id;
         }
         await api.post(`api/posts/${postId}/comments/`, payload);
       } else {

@@ -342,7 +342,7 @@ const QuoteHeader = ({ originalData, theme }) => {
 // the user doesn't follow yet, but keeps the "Following" button visible so
 // the user can still unfollow from the Following tab.
 // Pass hideFollow={feedType === 'following'} from FeedList.
-const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, hideFollow = false }) => {
+const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, feedType = 'global', hideFollow = false }) => {
   const { user } = useContext(AuthContext);
   const { followingIds, updateFollowStatus } = useFollow();
   const navigation = useNavigation();
@@ -380,11 +380,9 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, hideFoll
   //   1. Explicit unfollow sentinel stored in FollowContext
   //   2. FollowContext current following IDs
   //   3. post.author_details.is_following (from server, correct on first load)
-  const isFollowing = followingIds.has(-authorId)
-    ? false
-    : followingIds.has(authorId)
-    ? true
-    : (author?.is_following ?? false);  // fall back to server value
+ const isFollowing = 
+  followingIds.has(author?.id) ||
+  (author?.is_following === true && !followingIds.has(-author?.id));  // fall back to server value
 
   const [liked, setLiked] = useState(post.liked_by_me || false);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
@@ -684,33 +682,40 @@ const PostCard = ({ post, onDeleteSuccess, onEditPress, onCommentPress, hideFoll
           {/* ✅ FIX #8: On the Following tab (hideFollow=true), only hide the
               "Follow" button (user not yet following). The "Following" button
               stays visible so the user can still unfollow from that tab. */}
-          {!isOwner && !(hideFollow && !isFollowing) && (
-            <TouchableOpacity
-              style={[
-                styles.smallFollowBtn,
-                isFollowing
-                  ? [styles.smallFollowingBtn, { borderColor: theme.colors.primary }]
-                  : { backgroundColor: theme.colors.primary },
-              ]}
-              onPress={handleFollowToggle}
-              disabled={followLoading}
-            >
-              {followLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color={isFollowing ? theme.colors.primary : '#fff'}
-                />
-              ) : (
-                <Text
+          {/* ── IMPROVED FOLLOW BUTTON LOGIC ── */}
+          {!isOwner && (
+            <>
+              {/* On Global Feed: Show both Follow and Following */}
+              {/* On Following Feed: Only show "Following" button (hide "Follow") */}
+              {(feedType !== 'following' || isFollowing) && (
+                <TouchableOpacity
                   style={[
-                    styles.smallFollowText,
-                    { color: isFollowing ? theme.colors.primary : '#fff' },
+                    styles.smallFollowBtn,
+                    isFollowing
+                      ? [styles.smallFollowingBtn, { borderColor: theme.colors.primary }]
+                      : { backgroundColor: theme.colors.primary },
                   ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
                 >
-                  {isFollowing ? 'Following' : 'Follow'}
-                </Text>
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? theme.colors.primary : '#fff'}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.smallFollowText,
+                        { color: isFollowing ? theme.colors.primary : '#fff' },
+                      ]}
+                    >
+                      {isFollowing ? 'Following' : 'Follow'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+            </>
           )}
         </View>
 
