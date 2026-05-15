@@ -1,18 +1,26 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
   Platform,
+  Text,
 } from 'react-native';
 import { Tabs, MaterialTabBar } from 'react-native-collapsible-tab-view';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useQueryClient } from '@tanstack/react-query';
 import { ThemeContext } from '../store/themeStore';
 import FeedList from '../components/FeedList';
 
 export default function HomeScreen({ route, navigation }) {
-  const leagueId = route.params?.leagueId;
+  // ✅ FIX: Read leagueId from route params.
+  // Defaults to null (= global/all-sports feed) when no league is selected.
+  const leagueId = route?.params?.leagueId ?? null;
+
+  const queryClient = useQueryClient();
+  const prevLeagueIdRef = useRef(leagueId);
+
   const { theme } = useContext(ThemeContext) || {
     theme: {
       colors: {
@@ -25,6 +33,34 @@ export default function HomeScreen({ route, navigation }) {
     },
   };
 
+  // ─────────────────────────────────────────────────────────────────
+  // ✅ FIX: Invalidate the league feed cache when leagueId changes.
+  //
+  // React Navigation does NOT re-mount HomeScreen on param changes —
+  // it just updates route.params. The component re-renders, and since
+  // leagueId flows into FeedList's queryKey it will refetch.
+  // But we also proactively invalidate to drop any stale league cache.
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (prevLeagueIdRef.current !== leagueId) {
+      console.log(
+        '🏆 League changed:',
+        prevLeagueIdRef.current,
+        '→',
+        leagueId,
+      );
+      // Invalidate only league-type queries so other feeds stay cached
+      queryClient.invalidateQueries({
+        queryKey: ['posts', 'league'],
+        exact: false,
+      });
+      prevLeagueIdRef.current = leagueId;
+    }
+  }, [leagueId, queryClient]);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Drawer navigation helper (unchanged from your original)
+  // ─────────────────────────────────────────────────────────────────
   const findDrawerNavigation = nav => {
     let parent = nav;
     while (parent) {
@@ -36,6 +72,16 @@ export default function HomeScreen({ route, navigation }) {
   };
 
   const drawerNavigation = findDrawerNavigation(navigation);
+
+  const openDrawer = () => {
+    if (drawerNavigation?.openDrawer) {
+      drawerNavigation.openDrawer();
+    } else if (drawerNavigation?.toggleDrawer) {
+      drawerNavigation.toggleDrawer();
+    } else {
+      console.warn('Drawer navigation not found');
+    }
+  };
 
   const renderTabBar = props => (
     <MaterialTabBar
@@ -51,20 +97,8 @@ export default function HomeScreen({ route, navigation }) {
     />
   );
 
-  const openDrawer = () => {
-    if (drawerNavigation?.openDrawer) {
-      drawerNavigation.openDrawer();
-    } else if (drawerNavigation?.toggleDrawer) {
-      drawerNavigation.toggleDrawer();
-    } else {
-      console.warn('Drawer navigation not found');
-    }
-  };
-
   return (
-    <View
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <SafeAreaView style={{ backgroundColor: theme.colors.surface }} />
 
       <Tabs.Container
@@ -72,16 +106,42 @@ export default function HomeScreen({ route, navigation }) {
         headerHeight={0}
         revealHeaderOnScroll={true}
         snapThreshold={0.5}
+        // ✅ FIX: Key forces Tabs.Container to fully remount when the league
+        // changes. Without this, the collapsible tab view holds onto stale
+        // scroll positions and cached tab renders from the previous league.
+        key={leagueId ?? 'global'}
       >
-        <Tabs.Tab name="Global">
-          {/* FeedList logic now handles league preferences internally */}
-          <FeedList feedType="global" leagueId={leagueId} />
+        {/* ── GLOBAL / LEAGUE FEED ───────────────────────────────── */}
+        <Tabs.Tab
+          name={leagueId ? 'League' : 'Global'}
+          label={leagueId ? '🏆 League Feed' : '🌍 Global'}
+        >
+          {/*
+           * ✅ FIX: feedType switches to 'league' when leagueId is set.
+           *    leagueId only passed to this tab — Following always ignores it.
+           *
+           *  Global tab behaviour:
+           *    leagueId = null → feedType='global'  → all posts
+           *    leagueId = 3   → feedType='league'   → NFL posts only
+           */}
+          <FeedList
+            feedType={leagueId ? 'league' : 'global'}
+            leagueId={leagueId}
+          />
         </Tabs.Tab>
+
+        {/* ── FOLLOWING FEED ─────────────────────────────────────── */}
         <Tabs.Tab name="Following">
-          <FeedList feedType="following" leagueId={leagueId} />
+          {/*
+           * ✅ FIX: leagueId is intentionally NOT passed here.
+           *    Following feed always shows posts from followed users,
+           *    regardless of which league the drawer has selected.
+           */}
+          <FeedList feedType="following" leagueId={null} />
         </Tabs.Tab>
       </Tabs.Container>
 
+      {/* ── DRAWER BUTTON ──────────────────────────────────────────── */}
       <View style={styles.drawerButtonWrapper} pointerEvents="box-none">
         <TouchableOpacity
           style={styles.drawerButton}
@@ -91,8 +151,23 @@ export default function HomeScreen({ route, navigation }) {
         >
           <MaterialCommunityIcons name="menu" size={26} color="#fff" />
         </TouchableOpacity>
+
+        {/* ✅ BONUS: Show active league name under the drawer button */}
+        {leagueId && (
+          <View style={styles.leagueBadge}>
+            <MaterialCommunityIcons
+              name="trophy"
+              size={11}
+              color="#1E90FF"
+            />
+            <Text style={styles.leagueBadgeText} numberOfLines={1}>
+              League feed active
+            </Text>
+          </View>
+        )}
       </View>
 
+      {/* ── CREATE POST FAB ────────────────────────────────────────── */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => navigation.navigate('CreatePost')}
@@ -149,6 +224,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 6,
     elevation: 20,
+  },
+  leagueBadge: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 54 : 28,
+    left: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(30,144,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(30,144,255,0.4)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  leagueBadgeText: {
+    color: '#1E90FF',
+    fontSize: 11,
+    fontWeight: '600',
   },
   fab: {
     position: 'absolute',

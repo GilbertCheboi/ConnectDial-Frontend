@@ -1,21 +1,25 @@
 /**
- * FeedList.js – ConnectDial (FIXED v3)
+ * FeedList.js – ConnectDial (FIXED v4)
  * ─────────────────────────────────────────────────────────────────────
- * FIXES in this version (on top of v2):
- * ✅ FIX #7: Follow button seeds FollowContext from feed data on load.
- *            Previously FollowContext started as an empty Set, so
- *            followingIds.has(id) was always false and every post
- *            showed "Follow" even for already-followed users.
- *            Now when posts load we extract all author IDs where
- *            is_following=true and call setInitialFollowing() to seed
- *            the context. Re-seeds whenever feed data refreshes too.
+ * FIXES in this version:
  *
- * ✅ FIX #8: Follow button hidden on "Following" tab entirely.
- *            Posts in the Following feed are by definition already
- *            followed. A hideFollow={feedType === 'following'} prop is
- *            passed to PostCard so the button never shows there.
+ * ✅ FIX #9 (ROOT CAUSE): League feed was never actually filtered.
+ *    The old URL was:
+ *      api/posts/?feed_type=following&limit=10&offset=0&league=3
+ *    The backend PostViewSet.get_queryset() ignored feed_type and league
+ *    entirely — it just returned ALL posts ordered by -created_at.
  *
- * ✅ All previous features preserved (cache-while-revalidate, etc.)
+ *    Now:
+ *    - When leagueId is set, feedType is forced to 'league' in the URL
+ *    - The URL uses league_id= (matches backend param check)
+ *    - Backend now reads feed_type + league_id and filters accordingly
+ *
+ * ✅ FIX #10: queryKey includes feedType AND leagueId so league feeds
+ *    are cached separately from global/following feeds. Switching
+ *    between leagues no longer shows stale data from another league.
+ *
+ * ✅ All previous features preserved (cache-while-revalidate,
+ *    FollowContext seeding, hideFollow on following tab, etc.)
  * ─────────────────────────────────────────────────────────────────────
  */
 
@@ -36,7 +40,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import PostCard from './PostCard';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
-// ✅ FIX #7: Import useFollow so we can seed the context from feed data
 import { useFollow } from '../store/FollowContext';
 import { useNavigation } from '@react-navigation/native';
 import api from '../api/client';
@@ -56,8 +59,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   const navigation = useNavigation();
   const queryClient = useQueryClient();
-
-  // ✅ FIX #7: Pull setInitialFollowing from FollowContext
   const { setInitialFollowing } = useFollow();
 
   // ─────────────────────────────────────────────────────────────────────
@@ -72,11 +73,20 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   // ─────────────────────────────────────────────────────────────────────
   // QUERY KEY
+  // ✅ FIX #10: leagueId is part of the key so each league gets its
+  //    own cache bucket. No more stale cross-league results.
   // ─────────────────────────────────────────────────────────────────────
   const queryKey = useMemo(
-    () => ['posts', feedType, leagueId, debouncedSearch],
+    () => ['posts', feedType, leagueId ?? 'all', debouncedSearch],
     [feedType, leagueId, debouncedSearch]
   );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // RESOLVE EFFECTIVE FEED TYPE
+  // When a leagueId is provided, always tell the backend feed_type=league
+  // regardless of what the parent screen passed as feedType.
+  // ─────────────────────────────────────────────────────────────────────
+  const effectiveFeedType = leagueId ? 'league' : feedType;
 
   // ─────────────────────────────────────────────────────────────────────
   // INFINITE QUERY
@@ -93,10 +103,31 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   } = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam = 0 }) => {
-      let url = `api/posts/?feed_type=${feedType}&limit=10&offset=${pageParam}`;
-      if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`;
-      if (leagueId) url += `&league=${leagueId}`;
-      console.log('🔄 Fetching posts from:', url);
+      // ✅ FIX #9: Build the correct URL with feed_type and league_id.
+      //
+      //  Old (broken):
+      //    api/posts/?feed_type=following&limit=10&offset=0&league=3
+      //    → backend ignored everything, returned all posts
+      //
+      //  New (fixed):
+      //    api/posts/?feed_type=league&limit=10&offset=0&league_id=3
+      //    → backend filters by league_id correctly
+      //
+      // NOTE: The backend also supports the legacy &league= param name,
+      // but &league_id= is the canonical one used in get_queryset().
+      let url =
+        `api/posts/?feed_type=${effectiveFeedType}` +
+        `&limit=10&offset=${pageParam}`;
+
+      if (leagueId) {
+        url += `&league_id=${leagueId}`;
+      }
+
+      if (debouncedSearch) {
+        url += `&search=${encodeURIComponent(debouncedSearch)}`;
+      }
+
+      console.log('🔄 FeedList fetching:', url);
       const response = await api.get(url);
       return response.data;
     },
@@ -107,7 +138,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
     initialPageParam: 0,
     enabled: true,
 
-    // ── Cache-while-revalidate settings ──────────────────────────────
+    // ── Cache-while-revalidate ────────────────────────────────────────
     staleTime: 1000 * 60 * 2,   // 2 minutes fresh window
     gcTime:    1000 * 60 * 30,  // 30 minutes in memory after unmount
     refetchOnWindowFocus: true,
@@ -139,27 +170,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   const posts = data?.pages?.flatMap(page => page.results || page) || [];
 
   // ─────────────────────────────────────────────────────────────────────
-  // ✅ FIX #7: Seed FollowContext whenever feed data arrives
-  // Extracts every author in this feed where is_following=true and
-  // merges them into the shared context Set. This fixes the blank/Follow
-  // state on first render when the context Set is still empty.
-  // ─────────────────────────────────────────────────────────────────────
-  // NOTE: Following list is now initialized globally in FollowContext on app start,
-  // so this seeding is no longer needed. Keeping as backup in case of edge cases.
-  // ─────────────────────────────────────────────────────────────────────
-  // useEffect(() => {
-  //   if (posts.length === 0) return;
-  //   const followedIds = posts
-  //     .map(p => p.author_details)
-  //     .filter(a => a?.is_following && a?.id)
-  //     .map(a => a.id);
-  //   if (followedIds.length > 0) {
-  //     setInitialFollowing(followedIds);
-  //   }
-  // // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, [data]); // re-seed whenever query data refreshes
-
-  // ─────────────────────────────────────────────────────────────────────
   // HANDLERS
   // ─────────────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
@@ -169,7 +179,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   const handleEndReached = () => {
     if (hasNextPage && !isFetchingNextPage) {
-      console.log('📜 Reached end - loading more posts');
+      console.log('📜 Reached end — loading more posts');
       fetchNextPage();
     }
   };
@@ -231,9 +241,8 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       renderItem={({ item }) => (
         <PostCard
           post={item}
-          // ✅ FIX #8: On the Following tab, hide the "Follow" button only.
+          // On the Following tab, hide the "Follow" button only.
           // The "Following" button stays visible so users can still unfollow.
-          // On the Global/Home tab this is false so both states show normally.
           hideFollow={feedType === 'following'}
           onDeleteSuccess={() => {
             queryClient.invalidateQueries({ queryKey });
@@ -271,6 +280,8 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
           <Text style={[styles.emptyText, { color: theme.colors.subText, marginTop: 12 }]}>
             {debouncedSearch
               ? 'No posts found matching your search.'
+              : leagueId
+              ? 'No posts in this league yet.'
               : 'No posts available.'}
           </Text>
         </View>
