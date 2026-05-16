@@ -1,11 +1,21 @@
-import { useEffect, useContext } from 'react';
-import { Platform, Alert, Linking, PermissionsAndroid } from 'react-native';
+import React, { useEffect, useContext, useRef, useState } from 'react';
+import { Alert, Platform, Linking, PermissionsAndroid, View, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider, AuthContext } from './src/store/authStore';
 import { ThemeProvider } from './src/store/themeStore';
 import AppNavigator from './src/navigation/AppNavigator';
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { persistQueryClient } from '@tanstack/react-query-persist-client';
 import messaging from '@react-native-firebase/messaging';
 
+const NAVIGATION_KEY = 'NAVIGATION_STATE_V1';
+const RQ_CACHE_KEY = 'RQ_CACHE_V1';
+
+// ─────────────────────────────────────────────
+// React Query setup
+// ─────────────────────────────────────────────
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -17,20 +27,37 @@ const queryClient = new QueryClient({
   },
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Sits inside AuthProvider so it can read the logged-in user.
-// Fires the permission request exactly once after the user logs in.
-// ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Persist React Query cache (offline-like cache)
+// ─────────────────────────────────────────────
+persistQueryClient({
+  queryClient,
+  persister: {
+    persistClient: async (client) => {
+      await AsyncStorage.setItem(RQ_CACHE_KEY, JSON.stringify(client));
+    },
+    restoreClient: async () => {
+      const cache = await AsyncStorage.getItem(RQ_CACHE_KEY);
+      return cache ? JSON.parse(cache) : undefined;
+    },
+    removeClient: async () => {
+      await AsyncStorage.removeItem(RQ_CACHE_KEY);
+    },
+  },
+});
+
+// ─────────────────────────────────────────────
+// Notification Permission Gate
+// ─────────────────────────────────────────────
 function NotificationPermissionGate() {
   const { user } = useContext(AuthContext);
 
   useEffect(() => {
-    // Only ask when a user is authenticated — no point asking guests
     if (!user) return;
     requestNotificationPermission();
-  }, [user?.id]); // re-runs if a different user logs in, but not on every render
+  }, [user?.id]);
 
-  return null; // renders nothing, purely side-effect
+  return null;
 }
 
 async function requestNotificationPermission() {
@@ -42,11 +69,9 @@ async function requestNotificationPermission() {
         authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
       if (!granted) {
-        // iOS only shows the system dialog once ever.
-        // If denied, we nudge them toward Settings.
         Alert.alert(
           'Enable Notifications',
-          'Get notified about comments, follows and activity on ConnectDial.',
+          'Get updates for likes, comments, and followers.',
           [
             { text: 'Not Now', style: 'cancel' },
             { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -54,7 +79,6 @@ async function requestNotificationPermission() {
         );
       }
     } else if (Platform.OS === 'android' && Platform.Version >= 33) {
-      // Android 13+ (API 33) requires POST_NOTIFICATIONS permission
       const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
       );
@@ -62,7 +86,7 @@ async function requestNotificationPermission() {
       if (result !== PermissionsAndroid.RESULTS.GRANTED) {
         Alert.alert(
           'Enable Notifications',
-          'You may miss important updates. Enable notifications in Settings.',
+          'Turn on notifications in settings to stay updated.',
           [
             { text: 'Not Now', style: 'cancel' },
             { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -70,20 +94,72 @@ async function requestNotificationPermission() {
         );
       }
     }
-    // Android < 13: notifications are on by default, no prompt needed
-  } catch (error) {
-    console.warn('Notification permission error:', error);
+  } catch (err) {
+    console.warn('Notification permission error:', err);
   }
 }
 
+// ─────────────────────────────────────────────
+// Navigation persistence wrapper
+// ─────────────────────────────────────────────
+function NavigationPersistence({ children }) {
+  const [isReady, setIsReady] = useState(false);
+  const [initialState, setInitialState] = useState();
+  const navigationRef = useRef(null);
+
+  useEffect(() => {
+    const restore = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(NAVIGATION_KEY);
+        if (saved) setInitialState(JSON.parse(saved));
+      } catch (e) {
+        console.log('Navigation restore error:', e);
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    restore();
+  }, []);
+
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  return (
+    <NavigationContainer
+      ref={navigationRef}
+      initialState={initialState}
+      onStateChange={(state) => {
+        AsyncStorage.setItem(NAVIGATION_KEY, JSON.stringify(state));
+      }}
+    >
+      {children}
+    </NavigationContainer>
+  );
+}
+
+// ─────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ThemeProvider>
-          {/* Asks for permission once user is logged in */}
+
+          {/* Ask notification permission once logged in */}
           <NotificationPermissionGate />
-          <AppNavigator />
+
+          {/* Navigation persistence layer */}
+          <NavigationPersistence>
+            <AppNavigator />
+          </NavigationPersistence>
+
         </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>

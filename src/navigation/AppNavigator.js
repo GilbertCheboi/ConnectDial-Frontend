@@ -1,24 +1,9 @@
 /**
- * AppNavigator.js - FIXED
- * Location: src/navigation/AppNavigator.js
- *
- * FIXES:
- * ✅ FIX #1: Call setupPushNotifications(navigationRef) AFTER
- *            NavigationContainer mounts — previously called before the
- *            ref was ready, so navigation inside handlers was always null.
- * ✅ FIX #2: setupPushNotifications now correctly comes from
- *            NotificationContext (it was missing there before — fixed in
- *            NotificationContext.js).
+ * AppNavigator.js - FIXED (NO NavigationContainer HERE)
  */
 
 import React, { useContext, useEffect, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import {
-  NavigationContainer,
-  useNavigationContainerRef,
-  DarkTheme,
-  DefaultTheme,
-} from '@react-navigation/native';
 import messaging from '@react-native-firebase/messaging';
 import api from '../api/client';
 
@@ -34,99 +19,70 @@ import AuthNavigator from '../api/AuthNavigator';
 import OnboardingNavigator from '../api/OnboardingNavigator';
 import MainStackNavigator from './MainStackNavigator';
 
-// Components
+// UI
 import { ToastContainer } from '../components/ToastContainer';
 
-// ─────────────────────────────────────────────────────────────────────
-// Inner component — has access to all contexts
-// ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// INNER NAV CONTENT (NO NavigationContainer HERE)
+// ─────────────────────────────────────────────────────────────
 function AppNavigatorContent() {
   const { user, loading, isNew } = useContext(AuthContext);
   const themeContext = useContext(ThemeContext) || {};
-
-  // ✅ FIX #2: setupPushNotifications is now properly exported from context
   const { setupPushNotifications } = useNotifications();
 
-  const themeName = themeContext.themeName || 'dark';
-  const theme = themeContext.theme || {
-    colors: {
-      primary: '#1E90FF',
-      background: '#0A1624',
-      card: '#0D1F2D',
-      text: '#F8FAFC',
-      border: '#1E293B',
-      notification: '#FF4B4B',
-    },
-  };
-
   const themeLoading = themeContext.loading || false;
-  const navigationRef = useNavigationContainerRef();
   const fcmSetupDone = useRef(false);
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Save FCM token to backend
-  // ─────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // Save FCM token
+  // ─────────────────────────────────────────────
   const saveTokenToBackend = async (fcmToken) => {
     if (!user?.token) return;
+
     try {
-      console.log('📱 Syncing FCM Token to backend');
       await api.patch('auth/update/', { fcm_token: fcmToken });
-      console.log('✅ FCM Token synced');
     } catch (error) {
-      console.error('❌ FCM sync error:', error?.response?.data || error.message);
+      console.error('FCM sync error:', error?.response?.data || error.message);
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Firebase setup — runs once after user logs in
-  // ─────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // FCM setup
+  // ─────────────────────────────────────────────
   useEffect(() => {
     if (!user?.token || fcmSetupDone.current) return;
 
-    const initializeMessaging = async () => {
+    const init = async () => {
       try {
         const msg = messaging();
 
-        // Request permission (iOS — Android 13+ handled in App.tsx)
         const authStatus = await msg.requestPermission();
         const enabled =
           authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
           authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
-        if (!enabled) {
-          console.log('⚠️ Notifications disabled by user');
-          return;
-        }
+        if (!enabled) return;
 
-        // Get and sync FCM token
-        const fcmToken = await msg.getToken();
-        if (fcmToken) {
-          await saveTokenToBackend(fcmToken);
-        }
+        const token = await msg.getToken();
+        if (token) await saveTokenToBackend(token);
 
         fcmSetupDone.current = true;
-        console.log('✅ Firebase messaging initialised');
-      } catch (error) {
-        console.error('❌ Firebase setup failed:', error);
+      } catch (e) {
+        console.error('FCM init error', e);
       }
     };
 
-    initializeMessaging();
+    init();
   }, [user?.token]);
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Token refresh listener
-  // ─────────────────────────────────────────────────────────────────────
+  // token refresh
   useEffect(() => {
     if (!user?.token) return;
     const msg = messaging();
-    const unsubscribe = msg.onTokenRefresh(saveTokenToBackend);
-    return unsubscribe;
+    return msg.onTokenRefresh(saveTokenToBackend);
   }, [user?.token]);
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Loading screen
-  // ─────────────────────────────────────────────────────────────────────
+  // loading screen
   if (loading || themeLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -135,70 +91,27 @@ function AppNavigatorContent() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Navigation theme
-  // ─────────────────────────────────────────────────────────────────────
-  const navigationTheme =
-    themeName === 'dark'
-      ? {
-          ...DarkTheme,
-          colors: {
-            ...DarkTheme.colors,
-            primary: theme.colors.primary,
-            background: theme.colors.background,
-            card: theme.colors.card,
-            text: theme.colors.text,
-            border: theme.colors.border,
-            notification: theme.colors.notification,
-          },
-        }
-      : {
-          ...DefaultTheme,
-          colors: {
-            ...DefaultTheme.colors,
-            primary: theme.colors.primary,
-            background: theme.colors.background,
-            card: theme.colors.card,
-            text: theme.colors.text,
-            border: theme.colors.border,
-            notification: theme.colors.notification,
-          },
-        };
-
   return (
     <>
-      <NavigationContainer
-        ref={navigationRef}
-        theme={navigationTheme}
-        // ✅ FIX #1: onReady fires after NavigationContainer fully mounts,
-        // so navigationRef.current is valid when setupPushNotifications runs.
-        // Previously this was called in a useEffect before the container
-        // was ready, causing navigation inside handlers to silently fail.
-        onReady={() => {
-          if (user) {
-            console.log('🗺️ Navigation ready — setting up push handlers');
-            setupPushNotifications(navigationRef);
-          }
-        }}
-      >
-        {user ? (
-          isNew ? (
-            <OnboardingNavigator />
-          ) : (
-            <MainStackNavigator />
-          )
+      {/* 👇 NO NavigationContainer here */}
+      {user ? (
+        isNew ? (
+          <OnboardingNavigator />
         ) : (
-          <AuthNavigator />
-        )}
-      </NavigationContainer>
+          <MainStackNavigator />
+        )
+      ) : (
+        <AuthNavigator />
+      )}
+
       <ToastContainer />
     </>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Root AppNavigator with all providers
-// ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// ROOT WRAPPER
+// ─────────────────────────────────────────────
 export default function AppNavigator() {
   return (
     <ToastProvider>

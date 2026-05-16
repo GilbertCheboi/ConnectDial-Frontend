@@ -96,10 +96,20 @@ export default function FollowersList({ route }) {
     }
   };
 
-  const handleUserPress = (item) => {
-    const targetId = item.user?.id || item.id;
-    navigation.dispatch(StackActions.push('Profile', { userId: targetId }));
-  };
+const handleUserPress = (item) => {
+  const targetId = item.user?.id || item.id;
+
+  if (!targetId) return;
+
+  // Walk up multiple levels safely
+  let nav = navigation;
+
+  while (nav?.getParent?.()) {
+    nav = nav.getParent();
+  }
+
+  nav?.navigate?.('Profile', { userId: targetId });
+};
 
   const renderItem = ({ item }) => {
     const profile = item.user || item; // support both nested and flat response
