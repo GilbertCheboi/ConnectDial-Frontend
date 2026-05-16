@@ -14,12 +14,28 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import axios from 'axios';
 import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
+import { ThemeContext } from '../../store/themeStore';
 
 // 🚀 Replace with your HP 290 local IP or production domain
 const API_BASE_URL = 'http://api.connectdial.com/api';
 
 export default function ChooseLeaguesScreen({ navigation, route }) {
   const { user } = useContext(AuthContext);
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#1A2A3D',
+        card: '#0D1F2D',
+        text: '#F8FAFC',
+        subText: '#64748B',
+        border: '#1E293B',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+      },
+    },
+  };
+
   const [leagues, setLeagues] = useState([]);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +151,11 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
       <TouchableOpacity
         activeOpacity={0.8}
         onPress={() => toggleLeague(item.id)}
-        style={[styles.card, isSelected && styles.cardSelected]}
+        style={[
+          styles.card,
+          { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          isSelected && [styles.cardSelected, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]
+        ]}
       >
         <View style={styles.logoContainer}>
           <Image
@@ -144,16 +164,16 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
             resizeMode="contain"
           />
           {isSelected && (
-            <View style={styles.checkBadge}>
+            <View style={[styles.checkBadge, { backgroundColor: theme.colors.primary }]}>
               <MaterialCommunityIcons
                 name="check-circle"
                 size={20}
-                color="#fff"
+                color={theme.colors.buttonText}
               />
             </View>
           )}
         </View>
-        <Text style={[styles.name, isSelected && styles.nameSelected]}>
+        <Text style={[styles.name, { color: theme.colors.subText }, isSelected && [styles.nameSelected, { color: theme.colors.text }]]}>
           {item.name}
         </Text>
       </TouchableOpacity>
@@ -162,20 +182,20 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#1E90FF" />
-        <Text style={{ color: '#fff', marginTop: 10 }}>Loading Leagues...</Text>
+      <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ color: theme.colors.text, marginTop: 10 }}>Loading Leagues...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
           {isEditMode ? 'Edit Your Leagues' : 'Welcome to ConnectDial'}
         </Text>
-        <Text style={styles.subtitle}>
+        <Text style={[styles.subtitle, { color: theme.colors.subText }]}>
           {isEditMode
             ? 'Update the leagues you want to follow'
             : 'Choose the leagues you want to follow to personalize your feed'}
@@ -192,16 +212,16 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
         contentContainerStyle={{ paddingBottom: 100 }}
       />
 
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.nextButton} onPress={proceed}>
-          <Text style={styles.nextButtonText}>
+      <View style={[styles.footer, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
+        <TouchableOpacity style={[styles.nextButton, { backgroundColor: theme.colors.primary }]} onPress={proceed}>
+          <Text style={[styles.nextButtonText, { color: theme.colors.buttonText }]}>
             {isEditMode
               ? 'Next: Update Teams'
               : accountType === 'fan'
               ? 'Next: Select Teams'
               : 'Continue to Profile'}
           </Text>
-          <MaterialCommunityIcons name="arrow-right" size={20} color="#fff" />
+          <MaterialCommunityIcons name="arrow-right" size={20} color={theme.colors.buttonText} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -209,18 +229,16 @@ export default function ChooseLeaguesScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D1F2D' },
+  container: { flex: 1 },
   centered: { justifyContent: 'center', alignItems: 'center' },
   header: { padding: 25, paddingTop: 40 },
   title: {
     fontSize: 26,
     fontWeight: '900',
-    color: '#fff',
     letterSpacing: 0.5,
   },
   subtitle: {
     fontSize: 14,
-    color: '#64748B',
     marginTop: 8,
     lineHeight: 20,
   },
@@ -231,16 +249,12 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 0.48,
-    backgroundColor: '#1A2A3D',
     padding: 20,
     borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: '#1E293B',
   },
   cardSelected: {
-    backgroundColor: '#0D1F2D',
-    borderColor: '#1E90FF',
     borderWidth: 2,
   },
   logoContainer: { position: 'relative', marginBottom: 12 },
@@ -249,27 +263,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -5,
     right: -5,
-    backgroundColor: '#1E90FF',
     borderRadius: 10,
   },
   name: {
     fontSize: 14,
-    color: '#94A3B8',
     fontWeight: '600',
     textAlign: 'center',
   },
-  nameSelected: { color: '#fff', fontWeight: 'bold' },
+  nameSelected: { fontWeight: 'bold' },
   footer: {
     position: 'absolute',
     bottom: 0,
     width: '100%',
     padding: 20,
-    backgroundColor: '#0D1F2D',
     borderTopWidth: 1,
-    borderTopColor: '#1E293B',
   },
   nextButton: {
-    backgroundColor: '#1E90FF',
     flexDirection: 'row',
     height: 55,
     borderRadius: 15,
@@ -277,7 +286,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nextButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
     marginRight: 10,

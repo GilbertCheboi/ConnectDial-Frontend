@@ -1,22 +1,6 @@
 /**
- * FollowersList.js - ConnectDial
- * ─────────────────────────────────────────────────────────────────────
- * NEW SCREEN required by FIX #1 in ProfileScreen.
- *
- * Usage — navigate with:
- *   navigation.navigate('FollowersList', {
- *     userId: <number>,
- *     type: 'followers' | 'following',
- *     title: 'Followers' | 'Following',
- *   });
- *
- * Fetches from:
- *   GET auth/users/<userId>/followers/   → { results: [...] }
- *   GET auth/users/<userId>/following/   → { results: [...] }
- *
- * Each item is expected to have:
- *   { id, user_id, username, display_name, profile_pic, is_following }
- * ─────────────────────────────────────────────────────────────────────
+ * FollowersList.js - ConnectDial (FINAL)
+ * Works with the new backend endpoints you just added
  */
 
 import React, { useEffect, useState, useContext, useCallback } from 'react';
@@ -29,18 +13,21 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, StackActions } from '@react-navigation/native';
 import client from '../api/client';
 import { ThemeContext } from '../store/themeStore';
 import { AuthContext } from '../store/authStore';
+import { useFollow } from '../store/FollowContext';
 
 export default function FollowersList({ route }) {
   const navigation = useNavigation();
   const { userId, type = 'followers', title = 'Followers' } = route.params;
 
   const { user: loggedInUser } = useContext(AuthContext);
+  const { followingIds, updateFollowStatus } = useFollow();
   const { theme } = useContext(ThemeContext) || {
     theme: {
       colors: {
@@ -58,6 +45,7 @@ export default function FollowersList({ route }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [followLoadingIds, setFollowLoadingIds] = useState(new Set());
 
   const fetchUsers = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -65,7 +53,6 @@ export default function FollowersList({ route }) {
     setError(null);
 
     try {
-      // Adjust endpoint to match your backend
       const endpoint = `auth/users/${userId}/${type}/`;
       const res = await client.get(endpoint);
       const data = res.data;
@@ -84,37 +71,100 @@ export default function FollowersList({ route }) {
     fetchUsers();
   }, [fetchUsers]);
 
+  const handleFollowToggle = async (item) => {
+    const targetId = Number(item.user?.id || item.id);
+    if (!targetId || followLoadingIds.has(targetId)) return;
+
+    const isCurrentlyFollowing = followingIds.has(targetId);
+    const newStatus = !isCurrentlyFollowing;
+
+    setFollowLoadingIds((prev) => new Set(prev).add(targetId));
+    updateFollowStatus(targetId, newStatus);
+
+    try {
+      const res = await client.post(`auth/users/${targetId}/toggle-follow/`);
+      updateFollowStatus(targetId, res.data.following);
+    } catch (err) {
+      updateFollowStatus(targetId, isCurrentlyFollowing);
+      Alert.alert('Error', 'Could not update follow status.');
+    } finally {
+      setFollowLoadingIds((prev) => {
+        const updated = new Set(prev);
+        updated.delete(targetId);
+        return updated;
+      });
+    }
+  };
+
   const handleUserPress = (item) => {
-    // Use user_id (account ID) — fallback to id if not present
-    const targetId = item.user_id || item.id;
+    const targetId = item.user?.id || item.id;
     navigation.dispatch(StackActions.push('Profile', { userId: targetId }));
   };
 
   const renderItem = ({ item }) => {
+    const profile = item.user || item; // support both nested and flat response
+    const targetId = Number(profile.id);
+    const isOwner = loggedInUser?.id === targetId;
+
+    const isFollowing = followingIds.has(-targetId)
+      ? false
+      : followingIds.has(targetId)
+      ? true
+      : profile.is_following === true;
+
     const avatarUri =
-      item.profile_pic ||
-      `https://ui-avatars.com/client/?name=${item.username || 'U'}&background=1E90FF&color=fff`;
+      profile.profile_image ||
+      profile.profile_pic ||
+      `https://ui-avatars.com/api/?name=${profile.username || 'U'}&background=1E90FF&color=fff`;
 
     return (
       <TouchableOpacity
         style={[styles.userCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
         onPress={() => handleUserPress(item)}
-        activeOpacity={0.8}
+        activeOpacity={0.85}
       >
         <Image source={{ uri: avatarUri }} style={styles.avatar} />
+
         <View style={styles.info}>
           <Text style={[styles.displayName, { color: theme.colors.text }]}>
-            {item.display_name || item.username || 'Fan'}
+            {profile.display_name || profile.username || 'User'}
           </Text>
           <Text style={[styles.username, { color: theme.colors.subText }]}>
-            @{item.username || 'unknown'}
+            @{profile.username || 'unknown'}
           </Text>
         </View>
-        <MaterialCommunityIcons
-          name="chevron-right"
-          size={20}
-          color={theme.colors.subText}
-        />
+
+        {!isOwner && (
+          <TouchableOpacity
+            style={[
+              styles.followBtn,
+              isFollowing
+                ? styles.followingBtn
+                : { backgroundColor: theme.colors.primary },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleFollowToggle(item);
+            }}
+            disabled={followLoadingIds.has(targetId)}
+          >
+            {followLoadingIds.has(targetId) ? (
+              <ActivityIndicator
+                size="small"
+                color={isFollowing ? theme.colors.primary : '#fff'}
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.followText,
+                  { color: isFollowing ? theme.colors.primary : '#fff' },
+                ]}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     );
   };
@@ -130,14 +180,12 @@ export default function FollowersList({ route }) {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Loading */}
       {loading && (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       )}
 
-      {/* Error */}
       {!loading && error && (
         <View style={styles.centered}>
           <MaterialCommunityIcons name="alert-circle-outline" size={48} color={theme.colors.subText} />
@@ -151,11 +199,10 @@ export default function FollowersList({ route }) {
         </View>
       )}
 
-      {/* List */}
       {!loading && !error && (
         <FlatList
           data={users}
-          keyExtractor={(item, index) => (item.user_id || item.id || index).toString()}
+          keyExtractor={(item) => (item.user?.id || item.id || Math.random()).toString()}
           renderItem={renderItem}
           refreshControl={
             <RefreshControl
@@ -201,6 +248,7 @@ const styles = StyleSheet.create({
   retryText: { color: '#fff', fontWeight: '600' },
   emptyText: { fontSize: 15, marginTop: 12, textAlign: 'center' },
   listContent: { paddingVertical: 8, paddingHorizontal: 12, flexGrow: 1 },
+
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -213,4 +261,22 @@ const styles = StyleSheet.create({
   info: { flex: 1, marginLeft: 14 },
   displayName: { fontSize: 15, fontWeight: '700' },
   username: { fontSize: 13, marginTop: 2 },
+
+  followBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    minWidth: 85,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followingBtn: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#1E90FF',
+  },
+  followText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });

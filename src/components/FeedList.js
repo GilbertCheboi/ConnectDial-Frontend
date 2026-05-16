@@ -1,22 +1,25 @@
 /**
- * FeedList.js – ConnectDial (FIXED v2)
+ * FeedList.js – ConnectDial (FIXED v4)
  * ─────────────────────────────────────────────────────────────────────
  * FIXES in this version:
- * ✅ FIX #6: Cache-while-revalidate — on app reopen, cached posts show
- *            instantly while a silent background refetch updates them.
- *            Previously refetch() on every focus caused a blank flash
- *            because it triggered isLoading=true and cleared the list.
  *
- *   HOW IT WORKS:
- *   - staleTime: 2 min  → data is "fresh" for 2 min, no refetch needed
- *   - gcTime: 30 min    → cache kept in memory for 30 min after unmount
- *   - On focus: if data is stale, TanStack Query revalidates in the
- *     background (cached data stays visible, no loading spinner)
- *   - If app was closed/backgrounded > 2 min, focus triggers a silent
- *     background fetch — user sees old posts while new ones load in
- *   - Pull-to-refresh still forces an immediate full refetch
+ * ✅ FIX #9 (ROOT CAUSE): League feed was never actually filtered.
+ *    The old URL was:
+ *      api/posts/?feed_type=following&limit=10&offset=0&league=3
+ *    The backend PostViewSet.get_queryset() ignored feed_type and league
+ *    entirely — it just returned ALL posts ordered by -created_at.
  *
- * ✅ All previous features preserved
+ *    Now:
+ *    - When leagueId is set, feedType is forced to 'league' in the URL
+ *    - The URL uses league_id= (matches backend param check)
+ *    - Backend now reads feed_type + league_id and filters accordingly
+ *
+ * ✅ FIX #10: queryKey includes feedType AND leagueId so league feeds
+ *    are cached separately from global/following feeds. Switching
+ *    between leagues no longer shows stale data from another league.
+ *
+ * ✅ All previous features preserved (cache-while-revalidate,
+ *    FollowContext seeding, hideFollow on following tab, etc.)
  * ─────────────────────────────────────────────────────────────────────
  */
 
@@ -37,6 +40,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import PostCard from './PostCard';
 import { AuthContext } from '../store/authStore';
 import { ThemeContext } from '../store/themeStore';
+import { useFollow } from '../store/FollowContext';
 import { useNavigation } from '@react-navigation/native';
 import api from '../api/client';
 
@@ -55,6 +59,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   const navigation = useNavigation();
   const queryClient = useQueryClient();
+  const { setInitialFollowing } = useFollow();
 
   // ─────────────────────────────────────────────────────────────────────
   // DEBOUNCED SEARCH
@@ -68,11 +73,20 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   // ─────────────────────────────────────────────────────────────────────
   // QUERY KEY
+  // ✅ FIX #10: leagueId is part of the key so each league gets its
+  //    own cache bucket. No more stale cross-league results.
   // ─────────────────────────────────────────────────────────────────────
   const queryKey = useMemo(
-    () => ['posts', feedType, leagueId, debouncedSearch],
+    () => ['posts', feedType, leagueId ?? 'all', debouncedSearch],
     [feedType, leagueId, debouncedSearch]
   );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // RESOLVE EFFECTIVE FEED TYPE
+  // When a leagueId is provided, always tell the backend feed_type=league
+  // regardless of what the parent screen passed as feedType.
+  // ─────────────────────────────────────────────────────────────────────
+  const effectiveFeedType = leagueId ? 'league' : feedType;
 
   // ─────────────────────────────────────────────────────────────────────
   // INFINITE QUERY
@@ -89,10 +103,31 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
   } = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam = 0 }) => {
-      let url = `api/posts/?feed_type=${feedType}&limit=10&offset=${pageParam}`;
-      if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`;
-      if (leagueId) url += `&league=${leagueId}`;
-      console.log('🔄 Fetching posts from:', url);
+      // ✅ FIX #9: Build the correct URL with feed_type and league_id.
+      //
+      //  Old (broken):
+      //    api/posts/?feed_type=following&limit=10&offset=0&league=3
+      //    → backend ignored everything, returned all posts
+      //
+      //  New (fixed):
+      //    api/posts/?feed_type=league&limit=10&offset=0&league_id=3
+      //    → backend filters by league_id correctly
+      //
+      // NOTE: The backend also supports the legacy &league= param name,
+      // but &league_id= is the canonical one used in get_queryset().
+      let url =
+        `api/posts/?feed_type=${effectiveFeedType}` +
+        `&limit=10&offset=${pageParam}`;
+
+      if (leagueId) {
+        url += `&league_id=${leagueId}`;
+      }
+
+      if (debouncedSearch) {
+        url += `&search=${encodeURIComponent(debouncedSearch)}`;
+      }
+
+      console.log('🔄 FeedList fetching:', url);
       const response = await api.get(url);
       return response.data;
     },
@@ -101,31 +136,17 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       return nextOffset < (lastPage.count || 0) ? nextOffset : undefined;
     },
     initialPageParam: 0,
-    enabled: !(debouncedSearch === '' && searchQuery !== undefined),
+    enabled: true,
 
-    // ── FIX #6: Cache-while-revalidate settings ──────────────────────
-    // staleTime: posts are "fresh" for 2 minutes. Within 2 min of the
-    // last fetch, focus will NOT trigger a refetch — user sees cached
-    // data with zero loading. After 2 min (e.g. user was away), the
-    // data is "stale": a background refetch fires but the cached list
-    // stays visible while it loads. No blank flash.
-    staleTime: 1000 * 60 * 2,   // 2 minutes — adjust to taste
+    // ── Cache-while-revalidate ────────────────────────────────────────
+    staleTime: 1000 * 60 * 2,   // 2 minutes fresh window
     gcTime:    1000 * 60 * 30,  // 30 minutes in memory after unmount
-                                 // (was 10 — raised so reopening app
-                                 //  after a short break still has cache)
-
-    // refetchOnWindowFocus is web-only but kept for completeness
     refetchOnWindowFocus: true,
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // FIX #6: Silent background revalidation on screen focus
+  // Silent background revalidation on screen focus
   // ─────────────────────────────────────────────────────────────────────
-  // We do NOT call refetch() unconditionally — that forces a full reload
-  // and clears the list. Instead we let TanStack Query decide:
-  //   - If data is fresh (< 2 min old): nothing happens, cache shown
-  //   - If data is stale: background fetch fires, cache shown while loading
-  // The user only ever sees a blank loading state on the very first load.
   useFocusEffect(
     React.useCallback(() => {
       const state = queryClient.getQueryState(queryKey);
@@ -136,7 +157,6 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
       if (isStale) {
         console.log('📱 Screen focused — data stale, background refetch');
-        // refetchType: 'active' = refetch silently without clearing cache
         queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
       } else {
         console.log('📱 Screen focused — data fresh, showing cache');
@@ -159,7 +179,7 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
 
   const handleEndReached = () => {
     if (hasNextPage && !isFetchingNextPage) {
-      console.log('📜 Reached end - loading more posts');
+      console.log('📜 Reached end — loading more posts');
       fetchNextPage();
     }
   };
@@ -221,6 +241,10 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
       renderItem={({ item }) => (
         <PostCard
           post={item}
+          // On the Following tab, hide the "Follow" button only.
+          // The "Following" button stays visible so users can still unfollow.
+          feedType={feedType}           // ← Add this line
+          hideFollow={feedType === 'following'}
           onDeleteSuccess={() => {
             queryClient.invalidateQueries({ queryKey });
           }}
@@ -257,6 +281,8 @@ export default function FeedList({ feedType, leagueId, searchQuery = '' }) {
           <Text style={[styles.emptyText, { color: theme.colors.subText, marginTop: 12 }]}>
             {debouncedSearch
               ? 'No posts found matching your search.'
+              : leagueId
+              ? 'No posts in this league yet.'
               : 'No posts available.'}
           </Text>
         </View>

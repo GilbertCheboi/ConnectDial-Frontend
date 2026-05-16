@@ -13,10 +13,24 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import api from '../../api/client';
 import { AuthContext } from '../../store/authStore';
+import { ThemeContext } from '../../store/themeStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function CreateProfileScreen({ navigation }) {
   const { setIsNew } = useContext(AuthContext);
+  const { theme } = useContext(ThemeContext) || {
+    theme: {
+      colors: {
+        background: '#0D1F2D',
+        surface: '#1A2A3D',
+        text: '#F8FAFC',
+        subText: '#94A3B8',
+        primary: '#1E90FF',
+        secondary: '#64748B',
+        inputBackground: '#1A2A3D',
+      },
+    },
+  };
 
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
@@ -105,17 +119,17 @@ export default function CreateProfileScreen({ navigation }) {
 
   return (
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[styles.container, { backgroundColor: theme.colors.background }]}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.header}>Finalize Your Profile</Text>
+      <Text style={[styles.header, { color: theme.colors.text }]}>Finalize Your Profile</Text>
 
       {/* Banner */}
-      <TouchableOpacity onPress={() => pickImage('banner')} style={styles.bannerBtn}>
+      <TouchableOpacity onPress={() => pickImage('banner')} style={[styles.bannerBtn, { backgroundColor: theme.colors.surface }]}>
         {bannerImage ? (
           <Image source={{ uri: bannerImage.uri }} style={styles.banner} />
         ) : (
-          <Text style={styles.imageText}>+ Add Banner Photo</Text>
+          <Text style={[styles.imageText, { color: theme.colors.text }]}>+ Add Banner Photo</Text>
         )}
       </TouchableOpacity>
 
@@ -124,28 +138,28 @@ export default function CreateProfileScreen({ navigation }) {
         {profileImage ? (
           <Image source={{ uri: profileImage.uri }} style={styles.avatar} />
         ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.imageText}>Photo</Text>
+          <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary }]}>
+            <Text style={[styles.imageText, { color: theme.colors.buttonText }]}>Photo</Text>
           </View>
         )}
       </TouchableOpacity>
 
       <View style={styles.form}>
-        <Text style={styles.label}>Display Name</Text>
+        <Text style={[styles.label, { color: theme.colors.primary }]}>Display Name</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: theme.colors.inputBackground, color: theme.colors.text }]}
           placeholder="e.g. John Doe"
-          placeholderTextColor="#666"
+          placeholderTextColor={theme.colors.subText}
           value={displayName}
           onChangeText={setDisplayName}
           maxLength={50}
         />
 
-        <Text style={styles.label}>Bio</Text>
+        <Text style={[styles.label, { color: theme.colors.primary }]}>Bio</Text>
         <TextInput
-          style={[styles.input, styles.bioInput]}
+          style={[styles.input, styles.bioInput, { backgroundColor: theme.colors.inputBackground, color: theme.colors.text }]}
           placeholder="Tell the community about yourself..."
-          placeholderTextColor="#666"
+          placeholderTextColor={theme.colors.subText}
           value={bio}
           onChangeText={setBio}
           multiline
@@ -153,14 +167,14 @@ export default function CreateProfileScreen({ navigation }) {
         />
 
         <TouchableOpacity
-          style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+          style={[styles.submitBtn, { backgroundColor: theme.colors.primary }, loading && { backgroundColor: theme.colors.secondary }]}
           onPress={handleProfileSubmit}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.buttonText} />
           ) : (
-            <Text style={styles.btnText}>Finish & Enter App</Text>
+            <Text style={[styles.btnText, { color: theme.colors.buttonText }]}>Finish & Enter App</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -169,19 +183,19 @@ export default function CreateProfileScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container:         { paddingBottom: 40, backgroundColor: '#0D1F2D', minHeight: '100%' },
-  header:            { fontSize: 24, color: '#fff', fontWeight: 'bold', marginVertical: 30, textAlign: 'center' },
-  bannerBtn:         { width: '100%', height: 160, backgroundColor: '#1A2A3D', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  container:         { paddingBottom: 40, minHeight: '100%' },
+  header:            { fontSize: 24, fontWeight: 'bold', marginVertical: 30, textAlign: 'center' },
+  bannerBtn:         { width: '100%', height: 160, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   banner:            { width: '100%', height: 160, resizeMode: 'cover' },
   profileBtn:        { alignSelf: 'center', marginTop: -50, marginBottom: 20 },
-  avatar:            { width: 110, height: 110, borderRadius: 55, borderWidth: 4, borderColor: '#0D1F2D' },
-  avatarPlaceholder: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1E90FF', justifyContent: 'center', alignItems: 'center', borderWidth: 4, borderColor: '#0D1F2D' },
-  imageText:         { color: '#fff', fontSize: 13, fontWeight: '600' },
+  avatar:            { width: 110, height: 110, borderRadius: 55, borderWidth: 4 },
+  avatarPlaceholder: { width: 110, height: 110, borderRadius: 55, justifyContent: 'center', alignItems: 'center', borderWidth: 4 },
+  imageText:         { fontSize: 13, fontWeight: '600' },
   form:              { paddingHorizontal: 20 },
-  label:             { color: '#1E90FF', fontSize: 14, fontWeight: 'bold', marginBottom: 8, marginLeft: 4 },
-  input:             { backgroundColor: '#1A2A3D', color: '#fff', padding: 15, borderRadius: 12, marginBottom: 20, fontSize: 16 },
+  label:             { fontSize: 14, fontWeight: 'bold', marginBottom: 8, marginLeft: 4 },
+  input:             { padding: 15, borderRadius: 12, marginBottom: 20, fontSize: 16 },
   bioInput:          { height: 100, textAlignVertical: 'top' },
-  submitBtn:         { backgroundColor: '#1E90FF', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, elevation: 3 },
-  submitBtnDisabled: { backgroundColor: '#555' },
-  btnText:           { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+  submitBtn:         { padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, elevation: 3 },
+  submitBtnDisabled: { },
+  btnText:           { fontWeight: 'bold', fontSize: 18 },
 });

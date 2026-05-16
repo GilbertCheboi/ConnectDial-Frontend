@@ -6,6 +6,10 @@
  * ✅ FIX #1: Following stat is now tappable → navigates to FollowingList
  * ✅ FIX #1: following_count stored in local state so it updates
  *            immediately when current user follows/unfollows someone
+ * ✅ FIX #2: Leagues horizontal ScrollView now scrollable on Android
+ *            — nestedScrollEnabled on both FlatList and ScrollView
+ *            — decelerationRate="fast" for smooth chip scrolling
+ *            — scrollEventThrottle={16} for proper event handling
  * ✅ All existing functionality preserved
  * ─────────────────────────────────────────────────────────────────────
  */
@@ -23,6 +27,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  Platform,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import api from '../api/client';
@@ -46,6 +51,7 @@ export default function ProfileScreen({ route, navigation }) {
         secondary: '#64748B',
         card: '#112634',
         inputBackground: '#112634',
+        buttonText: '#FFFFFF',
       },
     },
   };
@@ -62,7 +68,6 @@ export default function ProfileScreen({ route, navigation }) {
   // Follow states
   const [isFollowing, setIsFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
-  // FIX #1: Store followingCount in state so it can update live
   const [followingCount, setFollowingCount] = useState(0);
   const [followLoading, setFollowLoading] = useState(false);
 
@@ -82,7 +87,6 @@ export default function ProfileScreen({ route, navigation }) {
       setProfile(profileData);
       setIsFollowing(profileData.is_following);
       setFollowersCount(profileData.followers_count || 0);
-      // FIX #1: Initialise followingCount from profile data
       setFollowingCount(profileData.following_count || 0);
 
       const requestedUserId =
@@ -152,7 +156,7 @@ export default function ProfileScreen({ route, navigation }) {
   };
 
   // ─────────────────────────────────────────────────────────────────────
-  // FIX #1: Navigate to followers / following list screens
+  // Navigate to followers / following list screens
   // ─────────────────────────────────────────────────────────────────────
   const handleFollowersPress = () => {
     if (!profileUserId) return;
@@ -172,6 +176,17 @@ export default function ProfileScreen({ route, navigation }) {
     });
   };
 
+  // ─────────────────────────────────────────────────────────────────────
+  // FIX #2: Leagues & Teams section with working horizontal scroll
+  // Key fixes:
+  //   1. nestedScrollEnabled={true} — tells Android to pass horizontal
+  //      touch events DOWN into this ScrollView instead of consuming them
+  //      in the parent FlatList.
+  //   2. decelerationRate="fast" — snappy, natural chip scroll feel.
+  //   3. scrollEventThrottle={16} — ~60fps event updates (one per frame).
+  //   4. The parent FlatList also gets nestedScrollEnabled={true} —
+  //      without this, Android still swallows the events at the list level.
+  // ─────────────────────────────────────────────────────────────────────
   const renderSupportSection = () => {
     const preferences = profile?.fan_preferences || [];
     return (
@@ -182,6 +197,13 @@ export default function ProfileScreen({ route, navigation }) {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          // ── FIX #2 core props ──────────────────────────────────────
+          nestedScrollEnabled={true}
+          decelerationRate="fast"
+          scrollEventThrottle={16}
+          // ── prevents parent FlatList stealing horizontal gestures ──
+          onStartShouldSetResponderCapture={() => false}
+          // ──────────────────────────────────────────────────────────
           contentContainerStyle={styles.chipScroll}
         >
           {preferences.map((pref, index) => (
@@ -227,7 +249,10 @@ export default function ProfileScreen({ route, navigation }) {
 
           {isCurrentUser && (
             <TouchableOpacity
-              style={styles.addLeagueBtn}
+              style={[
+                styles.addLeagueBtn,
+                { borderColor: theme.colors.primary },
+              ]}
               onPress={() =>
                 navigation.navigate('Onboarding', {
                   screen: 'SelectLeagues',
@@ -266,10 +291,15 @@ export default function ProfileScreen({ route, navigation }) {
   }
 
   return (
+    // ── FIX #2: nestedScrollEnabled on the parent FlatList ──────────
+    // Required on Android so child horizontal ScrollViews can receive
+    // their own touch events without the FlatList intercepting them.
+    // ────────────────────────────────────────────────────────────────
     <FlatList
       style={{ backgroundColor: theme.colors.background }}
       data={posts}
       keyExtractor={item => item.id.toString()}
+      nestedScrollEnabled={true}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -279,6 +309,7 @@ export default function ProfileScreen({ route, navigation }) {
       }
       ListHeaderComponent={
         <>
+          {/* ── Banner & Avatar ─────────────────────────────────── */}
           <View style={styles.headerContainer}>
             <Image
               source={{
@@ -305,6 +336,7 @@ export default function ProfileScreen({ route, navigation }) {
             </View>
           </View>
 
+          {/* ── Bio / Name / Follow ─────────────────────────────── */}
           <View style={styles.bioContainer}>
             <View style={styles.nameRow}>
               <View style={{ flex: 1 }}>
@@ -361,7 +393,7 @@ export default function ProfileScreen({ route, navigation }) {
                     <Text
                       style={[
                         styles.followButtonText,
-                        { color: theme.colors.buttonText },
+                        { color: theme.colors.buttonText || '#FFFFFF' },
                         isFollowing && [
                           styles.followingButtonText,
                           { color: theme.colors.subText },
@@ -379,10 +411,11 @@ export default function ProfileScreen({ route, navigation }) {
               {profile?.bio || 'Passionate sports fan. 🏆'}
             </Text>
 
+            {/* ── Stats row ─────────────────────────────────────── */}
             <View
               style={[styles.statsRow, { borderTopColor: theme.colors.border }]}
             >
-              {/* Posts count — not tappable */}
+              {/* Posts — not tappable */}
               <View style={styles.statItem}>
                 <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {posts.length}
@@ -394,10 +427,7 @@ export default function ProfileScreen({ route, navigation }) {
                 </Text>
               </View>
 
-              {/* ─────────────────────────────────────────────────────
-                  FIX #1: Followers — now a TouchableOpacity
-                  Navigates to FollowersList screen with type='followers'
-                  ───────────────────────────────────────────────────── */}
+              {/* Followers — tappable */}
               <TouchableOpacity
                 style={styles.statItem}
                 onPress={handleFollowersPress}
@@ -413,10 +443,7 @@ export default function ProfileScreen({ route, navigation }) {
                 </Text>
               </TouchableOpacity>
 
-              {/* ─────────────────────────────────────────────────────
-                  FIX #1: Following — now a TouchableOpacity
-                  Navigates to FollowersList screen with type='following'
-                  ───────────────────────────────────────────────────── */}
+              {/* Following — tappable */}
               <TouchableOpacity
                 style={styles.statItem}
                 onPress={handleFollowingPress}
@@ -434,8 +461,10 @@ export default function ProfileScreen({ route, navigation }) {
             </View>
           </View>
 
+          {/* ── Leagues & Teams (horizontally scrollable) ───────── */}
           {renderSupportSection()}
 
+          {/* ── Posts tab header ────────────────────────────────── */}
           <View
             style={[
               styles.tabHeader,
@@ -472,7 +501,13 @@ export default function ProfileScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ── Header / Banner ───────────────────────────────────────────────
   headerContainer: { height: 170, position: 'relative' },
   banner: { width: '100%', height: 130 },
   profilePicWrapper: {
@@ -483,6 +518,8 @@ const styles = StyleSheet.create({
     borderRadius: 44,
   },
   profilePic: { width: 80, height: 80, borderRadius: 40 },
+
+  // ── Bio ───────────────────────────────────────────────────────────
   bioContainer: { paddingHorizontal: 20, paddingTop: 12 },
   nameRow: {
     flexDirection: 'row',
@@ -491,6 +528,8 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 22, fontWeight: '900', letterSpacing: 0.5 },
   handle: { fontSize: 14, marginTop: 2 },
+
+  // ── Buttons ───────────────────────────────────────────────────────
   editButton: {
     borderWidth: 1,
     paddingHorizontal: 15,
@@ -508,7 +547,11 @@ const styles = StyleSheet.create({
   followingButton: { backgroundColor: 'transparent', borderWidth: 1 },
   followButtonText: { fontWeight: 'bold', fontSize: 14 },
   followingButtonText: {},
+
+  // ── Bio text ──────────────────────────────────────────────────────
   bio: { marginTop: 12, fontSize: 14, lineHeight: 20 },
+
+  // ── Stats row ─────────────────────────────────────────────────────
   statsRow: {
     flexDirection: 'row',
     marginTop: 20,
@@ -518,6 +561,8 @@ const styles = StyleSheet.create({
   statItem: { marginRight: 30, alignItems: 'flex-start' },
   statNumber: { fontSize: 16, fontWeight: 'bold' },
   statLabel: { fontSize: 12, marginTop: 2 },
+
+  // ── Leagues section ───────────────────────────────────────────────
   supportContainer: { marginTop: 25, marginBottom: 10 },
   sectionTitle: {
     fontSize: 11,
@@ -527,7 +572,12 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
-  chipScroll: { paddingLeft: 20, paddingRight: 10 },
+  chipScroll: {
+    paddingLeft: 20,
+    paddingRight: 10,
+    // Ensure chips have enough height so the touch area is generous
+    alignItems: 'center',
+  },
   sportChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -536,6 +586,8 @@ const styles = StyleSheet.create({
     marginRight: 15,
     borderWidth: 1,
     height: 55,
+    // Minimum width so short league names don't collapse the chip
+    minWidth: 150,
   },
   leagueIconBadge: {
     width: 24,
@@ -557,8 +609,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderStyle: 'dashed',
     height: 55,
+    minWidth: 130,
   },
   addLeagueText: { fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
+
+  // ── Posts tab ─────────────────────────────────────────────────────
   tabHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -569,6 +624,8 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 14, fontWeight: 'bold' },
   activeIndicator: { width: 6, height: 6, borderRadius: 3, marginLeft: 8 },
+
+  // ── Empty state ───────────────────────────────────────────────────
   emptyContainer: {
     marginTop: 50,
     justifyContent: 'center',
