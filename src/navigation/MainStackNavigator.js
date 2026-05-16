@@ -8,6 +8,7 @@ import OnboardingNavigator from '../api/OnboardingNavigator';
 import EditProfileScreen from '../screens/onboarding/EditProfileScreen';
 import ShortEditorScreen from '../screens/ShortEditorScreen';
 import FollowersList from '../screens/FollowersList';
+import EditPostScreen from '../screens/EditPostScreen';
 
 const Stack = createStackNavigator();
 
@@ -95,6 +96,18 @@ export default function MainStackNavigator() {
           headerTintColor: '#fff',
         }}
       />
+      {/* ✅ ADD THIS */}
+<Stack.Screen
+  name="EditPost"
+  component={EditPostScreen}
+  options={{
+    headerShown: true,
+    title: 'Edit Post',
+    headerStyle: { backgroundColor: '#0D1F2D' },
+    headerTintColor: '#fff',
+    headerBackTitleVisible: false,
+  }}
+/>
 
       {/* 4. Onboarding */}
       <Stack.Screen

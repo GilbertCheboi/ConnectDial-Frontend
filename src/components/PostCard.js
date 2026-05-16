@@ -1,10 +1,11 @@
 /**
- * PostCard.js – ConnectDial (FIXED v9)
- * ─────────────────────────────────────────────────────────────────────
- * FIX #1d: Final fix for follow button persisting after app close/reopen
- *   - Stronger sentinel priority using negative IDs
- *   - Better handling with FollowContext
- *   - All previous code and features preserved exactly
+ * PostCard.js – ConnectDial (FULLY UPDATED v12)
+ * Changes from v11:
+ *  - Edit & Delete moved into the 3-dots (handleMenuPress) for both owner and non-owner
+ *  - Timestamp removed from the footer comment section
+ *  - @username shown beside display name in author row
+ *  - Delete  → DELETE  https://api.connectdial.com/api/posts/:id/
+ *  - Edit    → PATCH   https://api.connectdial.com/api/posts/:id/
  */
 
 import React, {
@@ -14,6 +15,7 @@ import React, {
   useRef,
   useCallback,
 } from 'react';
+
 import {
   View,
   Text,
@@ -24,17 +26,22 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  Modal,
+  Pressable,
+  ScrollView,
 } from 'react-native';
+
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import Video from 'react-native-video';
 import Autolink from 'react-native-autolink';
 import Share from 'react-native-share';
 import { captureRef } from 'react-native-view-shot';
 import ViewShot from 'react-native-view-shot';
+
 import { AuthContext } from '../store/authStore';
 import { useFollow } from '../store/FollowContext';
 import api from '../api/client';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { ThemeContext } from '../store/themeStore';
 
 const { width } = Dimensions.get('window');
@@ -49,6 +56,7 @@ const formatTimeAgo = dateString => {
   const now = new Date();
   const postDate = new Date(dateString);
   const diffSeconds = Math.floor((now - postDate) / 1000);
+
   if (diffSeconds < 60) return 'now';
   if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m`;
   if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h`;
@@ -141,7 +149,7 @@ const VideoTile = ({ uri, style, onScreenBlur }) => {
 // ─────────────────────────────────────────────────────────────────────
 // MEDIA GRID
 // ─────────────────────────────────────────────────────────────────────
-const MediaGrid = ({ mediaFiles, onScreenBlur }) => {
+const MediaGrid = ({ mediaFiles, onScreenBlur, openImageViewer }) => {
   if (!mediaFiles || mediaFiles.length === 0) return null;
 
   const count = mediaFiles.length;
@@ -167,12 +175,17 @@ const MediaGrid = ({ mediaFiles, onScreenBlur }) => {
     }
 
     return (
-      <Image
+      <TouchableOpacity
         key={rawUrl}
-        source={uri}
-        style={[styles.mediaTile, tileStyle]}
-        resizeMode="cover"
-      />
+        activeOpacity={0.95}
+        onPress={() => openImageViewer(uri.uri)}
+      >
+        <Image
+          source={uri}
+          style={[styles.mediaTile, tileStyle]}
+          resizeMode="cover"
+        />
+      </TouchableOpacity>
     );
   };
 
@@ -198,7 +211,11 @@ const MediaGrid = ({ mediaFiles, onScreenBlur }) => {
         ]}
       >
         {mediaFiles.map((item, idx) =>
-          renderTile(item, { width: tileW, height: '100%', borderRadius: 12 }),
+          renderTile(item, {
+            width: tileW,
+            height: '100%',
+            borderRadius: 12,
+          })
         )}
       </View>
     );
@@ -276,7 +293,6 @@ const MediaGrid = ({ mediaFiles, onScreenBlur }) => {
 const QuoteHeader = ({ originalData, theme }) => {
   const origAuthor = originalData?.author_details;
   const origSupport = originalData?.supporting_info;
-
   if (!origAuthor) return null;
 
   const avatarUri =
@@ -295,7 +311,7 @@ const QuoteHeader = ({ originalData, theme }) => {
     <View style={styles.quoteHeaderRow}>
       <Image source={{ uri: avatarUri }} style={styles.quoteAvatar} />
       <View style={{ flex: 1, marginLeft: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
           <Text
             style={[styles.quoteDisplayName, { color: theme.colors.text }]}
             numberOfLines={1}
@@ -322,24 +338,15 @@ const QuoteHeader = ({ originalData, theme }) => {
             style={[styles.quoteUsername, { color: theme.colors.subText }]}
             numberOfLines={1}
           >
-            {'  '}@{origAuthor.username}
+            {' '}@{origAuthor.username}
           </Text>
         </View>
-        {origSupport?.team_name ? (
-          <Text style={styles.quoteSupportLine} numberOfLines={1}>
-            <Text style={{ color: theme.colors.text }}>Supports </Text>
-            <Text style={{ color: theme.colors.primary }}>
-              {origSupport.team_name}
-            </Text>
-          </Text>
-        ) : (
-          <Text
-            style={[styles.quoteSupportLine, { color: theme.colors.text }]}
-            numberOfLines={1}
-          >
-            {supportLine}
-          </Text>
-        )}
+        <Text
+          style={[styles.quoteSupportLine, { color: theme.colors.text }]}
+          numberOfLines={1}
+        >
+          {supportLine}
+        </Text>
       </View>
     </View>
   );
@@ -362,22 +369,21 @@ const PostCard = ({
   const postRef = useRef(null);
 
   const [isExpanded, setIsExpanded] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+
   const TEXT_LIMIT = 180;
   const shouldTruncate = post.content?.length > TEXT_LIMIT;
 
   const { theme } = useContext(ThemeContext) || {
-    theme: {
-      colors: {
-        background: '#0A1624',
-        surface: '#0D1F2D',
-        card: '#112634',
-        text: '#F8FAFC',
-        subText: '#94A3B8',
-        border: '#1E293B',
-        primary: '#1E90FF',
-        secondary: '#64748B',
-        notificationBadge: '#FF4B4B',
-      },
+    colors: {
+      card: '#112634',
+      text: '#F8FAFC',
+      subText: '#94A3B8',
+      border: '#1E293B',
+      primary: '#1E90FF',
+      secondary: '#64748B',
+      notificationBadge: '#FF4B4B',
     },
   };
 
@@ -388,15 +394,13 @@ const PostCard = ({
   const support = post.supporting_info;
   const isOwner = user?.id === authorId;
 
-  // ─── IMPROVED FOLLOW LOGIC (Strong Sentinel Priority) ───
   const hasExplicitUnfollow = followingIds.has(-authorId);
   const hasExplicitFollow = followingIds.has(authorId);
-
   const isFollowing = hasExplicitUnfollow
     ? false
     : hasExplicitFollow
     ? true
-    : (author?.is_following === true);
+    : author?.is_following === true;
 
   const [liked, setLiked] = useState(post.liked_by_me || false);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
@@ -418,14 +422,13 @@ const PostCard = ({
 
   const handleScreenBlur = useCallback(
     callback => navigation.addListener('blur', callback),
-    [navigation],
+    [navigation]
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {};
-    }, []),
-  );
+  const openImageViewer = uri => {
+    setSelectedImage(uri);
+    setImageViewerVisible(true);
+  };
 
   const resolvedMedia = (() => {
     if (post.media_files?.length > 0) return post.media_files;
@@ -442,6 +445,7 @@ const PostCard = ({
     return [];
   })();
 
+  // ─── Deep Link Share ───────────────────────────────────────────────
   const handleShare = async () => {
     try {
       const uri = await captureRef(postRef, {
@@ -449,10 +453,15 @@ const PostCard = ({
         quality: 0.92,
         result: 'tmpfile',
       });
-      const deepLink = `https://connectdial.app/post/${post.id}`;
-      const message = `Check out this post on ConnectDial 🔥\n\n${
-        post.content?.substring(0, 140) ?? ''
-      }${post.content?.length > 140 ? '...' : ''}\n\n🔗 ${deepLink}`;
+
+      const deepLink = `https://api.connectdial.com/api/posts/share/post/${post.id}/`;
+
+      const message =
+        `Check out this post on ConnectDial 🔥\n\n` +
+        `${post.content?.substring(0, 140) ?? ''}${
+          post.content?.length > 140 ? '...' : ''
+        }\n\n🔗 ${deepLink}`;
+
       await Share.open({
         title: 'Share Post',
         message,
@@ -460,6 +469,8 @@ const PostCard = ({
         type: 'image/png',
         failOnCancel: false,
       });
+
+      api.post(`/api/posts/share/post/${post.id}/`, { comment: '' }).catch(() => {});
     } catch (error) {
       if (error?.message !== 'User did not share') {
         Alert.alert('Share Failed', 'Could not share this post at the moment.');
@@ -472,11 +483,10 @@ const PostCard = ({
     const prev = isFollowing;
     const targetId = author.id;
     setFollowLoading(true);
-
     updateFollowStatus(targetId, !prev);
 
     try {
-      const res = await api.post(`auth/users/${targetId}/toggle-follow/`);
+      const res = await api.post(`/auth/users/${targetId}/toggle-follow/`);
       updateFollowStatus(targetId, res.data.following);
     } catch {
       updateFollowStatus(targetId, prev);
@@ -520,38 +530,98 @@ const PostCard = ({
     ]);
   };
 
-  const handleMenuPress = () => {
-    const options = [{ text: 'Cancel', style: 'cancel' }];
-    if (isOwner) {
-      options.push(
-        { text: 'Edit Post', onPress: () => onEditPress?.(post) },
-        { text: 'Delete Post', style: 'destructive', onPress: confirmDelete },
-      );
-    } else {
-      options.push({
-        text: 'Report Post',
-        onPress: () => Alert.alert('Reported', 'Thank you for reporting.'),
-      });
-    }
-    Alert.alert('Post Options', 'Select an action', options);
-  };
+ // ─── Instant Delete → DELETE https://api.connectdial.com/api/posts/:id/ ───
+const confirmDelete = () => {
+  Alert.alert('Delete Post', 'Are you sure?', [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Delete',
+      style: 'destructive',
+      onPress: async () => {
+        const postId = post.id ?? post.uuid ?? post.pk;
 
-  const confirmDelete = () => {
-    Alert.alert('Delete Post', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.delete(`api/posts/${post.id}/`);
-            onDeleteSuccess?.(post.id);
-          } catch {
-            Alert.alert('Error', 'Failed to delete');
-          }
-        },
+        if (!postId) {
+          Alert.alert('Error', 'Could not identify post ID.');
+          return;
+        }
+
+        // ✅ INSTANTLY REMOVE POST FROM UI
+        onDeleteSuccess?.(postId);
+
+        try {
+          console.log(
+            '[PostCard] Deleting post:',
+            postId,
+            '| full post keys:',
+            Object.keys(post)
+          );
+
+          // Final URL: https://api.connectdial.com/api/posts/{id}/
+          await api.delete(`api/posts/${postId}/`);
+
+          console.log('[PostCard] Delete success:', postId);
+        } catch (err) {
+          const status = err?.response?.status;
+          const detail = err?.response?.data?.detail || err?.message;
+
+          console.error('[PostCard] Delete failed:', status, detail);
+
+          // OPTIONAL: refresh feed if delete failed
+          Alert.alert(
+            'Delete Failed',
+            detail || 'Could not delete post from server.'
+          );
+        }
       },
-    ]);
+    },
+  ]);
+};
+
+// ─── Edit → PATCH https://api.connectdial.com/api/posts/:id/ ──────
+const handleEditPress = () => {
+  if (onEditPress) {
+    // Parent handles edit modal/screen
+    onEditPress(post);
+    return;
+  }
+
+  // ✅ FIX: use dedicated EditPost screen (NOT CreatePost)
+  navigation.navigate('EditPost', {
+    postId: post.id,
+
+    // optional instant update callback
+    onSave: (updatedPost) => {
+      if (typeof post.onUpdate === 'function') {
+        post.onUpdate(updatedPost);
+      }
+    },
+  });
+};
+
+  // ─── 3-dots menu (Edit & Delete for owner; Report for others) ─────
+  const handleMenuPress = () => {
+    if (isOwner) {
+      Alert.alert('Post Options', 'Select an action', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Edit Post',
+          onPress: handleEditPress,
+        },
+        {
+          text: 'Delete Post',
+          style: 'destructive',
+          onPress: confirmDelete,
+        },
+      ]);
+    } else {
+      Alert.alert('Post Options', 'Select an action', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report Post',
+          onPress: () => Alert.alert('Reported', 'Thank you for reporting.'),
+        },
+      ]);
+    }
   };
 
   const handleAutolinkPress = (url, match) => {
@@ -596,13 +666,17 @@ const PostCard = ({
               color={theme.colors.secondary}
             />
             <Text
-              style={[styles.repostUserText, { color: theme.colors.secondary }]}
+              style={[
+                styles.repostUserText,
+                { color: theme.colors.secondary },
+              ]}
             >
               {author?.display_name || author?.username} reposted
             </Text>
           </View>
         )}
 
+        {/* TOP HEADER: League tag | timestamp + 3-dots */}
         <View style={styles.topHeader}>
           <View
             style={[
@@ -616,7 +690,10 @@ const PostCard = ({
               color={theme.colors.primary}
             />
             <Text
-              style={[styles.leagueHeaderText, { color: theme.colors.primary }]}
+              style={[
+                styles.leagueHeaderText,
+                { color: theme.colors.primary },
+              ]}
             >
               {support?.league_name || 'Global'}
             </Text>
@@ -625,6 +702,7 @@ const PostCard = ({
             <Text style={[styles.timestamp, { color: theme.colors.subText }]}>
               {formatTimeAgo(post.created_at)}
             </Text>
+            {/* 3-dots: contains Edit & Delete (owner) or Report (others) */}
             <TouchableOpacity
               onPress={handleMenuPress}
               style={styles.menuIconButton}
@@ -638,6 +716,7 @@ const PostCard = ({
           </View>
         </View>
 
+        {/* AUTHOR ROW: Avatar | DisplayName @username | Follow button */}
         <View style={styles.authorSection}>
           <TouchableOpacity
             onPress={() => navigation.push('Profile', { userId: author?.id })}
@@ -652,14 +731,18 @@ const PostCard = ({
               style={styles.avatar}
             />
             <View style={styles.nameColumn}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={[styles.username, { color: theme.colors.text }]}>
+              {/* Display name + badge + @username on the same row */}
+              <View style={styles.nameRow}>
+                <Text
+                  style={[styles.displayName, { color: theme.colors.text }]}
+                  numberOfLines={1}
+                >
                   {author?.display_name || author?.username || 'Fan'}
                 </Text>
                 {author?.badge_type === 'official' && (
                   <MaterialCommunityIcons
                     name="check-decagram"
-                    size={16}
+                    size={15}
                     color="#FFD700"
                     style={{ marginLeft: 4 }}
                   />
@@ -667,12 +750,20 @@ const PostCard = ({
                 {author?.badge_type === 'verified' && (
                   <MaterialCommunityIcons
                     name="check-decagram"
-                    size={16}
+                    size={15}
                     color="#1DA1F2"
                     style={{ marginLeft: 4 }}
                   />
                 )}
+                <Text
+                  style={[styles.usernameHandle, { color: theme.colors.subText }]}
+                  numberOfLines={1}
+                >
+                  {' '}@{author?.username}
+                </Text>
               </View>
+
+              {/* Supports / account type */}
               {support ? (
                 <Text style={styles.supportStatus}>
                   <Text style={{ color: theme.colors.text }}>Supports </Text>
@@ -684,9 +775,7 @@ const PostCard = ({
                 <Text
                   style={[styles.supportStatus, { color: theme.colors.text }]}
                 >
-                  {author?.account_type === 'news'
-                    ? 'News / Media'
-                    : 'Sports Fan'}
+                  {author?.account_type === 'news' ? 'News / Media' : 'Sports Fan'}
                 </Text>
               )}
             </View>
@@ -697,10 +786,7 @@ const PostCard = ({
               style={[
                 styles.smallFollowBtn,
                 isFollowing
-                  ? [
-                      styles.smallFollowingBtn,
-                      { borderColor: theme.colors.primary },
-                    ]
+                  ? [styles.smallFollowingBtn, { borderColor: theme.colors.primary }]
                   : { backgroundColor: theme.colors.primary },
               ]}
               onPress={handleFollowToggle}
@@ -725,12 +811,11 @@ const PostCard = ({
           )}
         </View>
 
+        {/* CONTENT BODY */}
         <View style={styles.contentBody}>
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() =>
-              navigation.navigate('PostDetail', { postId: post.id })
-            }
+            onPress={() => navigation.navigate('PostDetail', { postId: post.id })}
           >
             {!!post.content && (
               <View pointerEvents="box-none">
@@ -776,7 +861,6 @@ const PostCard = ({
                 }
               >
                 <QuoteHeader originalData={originalData} theme={theme} />
-
                 <Autolink
                   text={originalData.content || ''}
                   style={[styles.quoteContent, { color: theme.colors.text }]}
@@ -790,6 +874,7 @@ const PostCard = ({
                   <MediaGrid
                     mediaFiles={originalData.media_files}
                     onScreenBlur={handleScreenBlur}
+                    openImageViewer={openImageViewer}
                   />
                 )}
               </TouchableOpacity>
@@ -799,12 +884,15 @@ const PostCard = ({
               <MediaGrid
                 mediaFiles={resolvedMedia}
                 onScreenBlur={handleScreenBlur}
+                openImageViewer={openImageViewer}
               />
             )}
           </TouchableOpacity>
         </View>
 
+        {/* FOOTER: Like | Comment | Repost | Share */}
         <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+          {/* Like */}
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={() => {
@@ -820,19 +908,15 @@ const PostCard = ({
             <MaterialCommunityIcons
               name={liked ? 'heart' : 'heart-outline'}
               size={22}
-              color={
-                liked ? theme.colors.notificationBadge : theme.colors.primary
-              }
+              color={liked ? theme.colors.notificationBadge : theme.colors.primary}
             />
             <Text style={[styles.actionText, { color: theme.colors.subText }]}>
               {likesCount}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={handleCommentPress}
-          >
+          {/* Comment (no timestamp, no inline edit/delete — those are in 3-dots) */}
+          <TouchableOpacity style={styles.actionBtn} onPress={handleCommentPress}>
             <MaterialCommunityIcons
               name="comment-text-outline"
               size={20}
@@ -843,10 +927,8 @@ const PostCard = ({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={handleRepostPress}
-          >
+          {/* Repost */}
+          <TouchableOpacity style={styles.actionBtn} onPress={handleRepostPress}>
             <MaterialCommunityIcons
               name="repeat"
               size={22}
@@ -857,6 +939,7 @@ const PostCard = ({
             </Text>
           </TouchableOpacity>
 
+          {/* Share */}
           <TouchableOpacity style={styles.actionBtn} onPress={handleShare}>
             <MaterialCommunityIcons
               name="share-variant-outline"
@@ -869,6 +952,34 @@ const PostCard = ({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* FULLSCREEN IMAGE VIEWER */}
+      <Modal
+        visible={imageViewerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setImageViewerVisible(false)}
+      >
+        <View style={styles.fullscreenContainer}>
+          <Pressable
+            style={styles.closeButton}
+            onPress={() => setImageViewerVisible(false)}
+          >
+            <MaterialCommunityIcons name="close" size={30} color="#fff" />
+          </Pressable>
+          <ScrollView
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            contentContainerStyle={styles.fullscreenScroll}
+          >
+            <Image
+              source={{ uri: selectedImage }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          </ScrollView>
+        </View>
+      </Modal>
     </ViewShot>
   );
 };
@@ -891,7 +1002,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 45,
     marginBottom: 8,
   },
-  repostUserText: { fontSize: 12, fontWeight: 'bold', marginLeft: 8 },
+  repostUserText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
   topHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -912,9 +1027,17 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     textTransform: 'uppercase',
   },
-  rightActions: { flexDirection: 'row', alignItems: 'center' },
-  menuIconButton: { paddingLeft: 10 },
-  timestamp: { fontSize: 11, marginRight: 5 },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  menuIconButton: {
+    paddingLeft: 10,
+  },
+  timestamp: {
+    fontSize: 11,
+    marginRight: 5,
+  },
   authorSection: {
     flexDirection: 'row',
     paddingHorizontal: CARD_PADDING,
@@ -922,26 +1045,62 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     justifyContent: 'space-between',
   },
-  avatar: { width: 42, height: 42, borderRadius: 21 },
-  nameColumn: { marginLeft: 12 },
-  username: { fontWeight: 'bold', fontSize: 16 },
-  supportStatus: { fontSize: 12, marginTop: 1 },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  nameColumn: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+  },
+  displayName: {
+    fontWeight: 'bold',
+    fontSize: 15,
+    flexShrink: 1,
+  },
+  usernameHandle: {
+    fontSize: 13,
+    fontWeight: '400',
+    flexShrink: 1,
+  },
+  supportStatus: {
+    fontSize: 12,
+    marginTop: 1,
+  },
   smallFollowBtn: {
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 15,
     minWidth: 70,
     alignItems: 'center',
+    marginLeft: 8,
   },
   smallFollowingBtn: {
     backgroundColor: 'transparent',
     borderWidth: 1,
   },
-  smallFollowText: { fontSize: 11, fontWeight: 'bold' },
-  contentBody: { paddingHorizontal: CARD_PADDING, marginBottom: 10 },
-  postText: { fontSize: 15, lineHeight: 22, marginBottom: 10 },
-  linkText: { fontWeight: 'bold' },
-
+  smallFollowText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  contentBody: {
+    paddingHorizontal: CARD_PADDING,
+    marginBottom: 10,
+  },
+  postText: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 10,
+  },
+  linkText: {
+    fontWeight: 'bold',
+  },
   quoteBox: {
     marginTop: 5,
     borderWidth: 1,
@@ -972,10 +1131,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 1,
   },
-  quoteContent: { fontSize: 14, lineHeight: 20 },
-
-  mediaWrapper: { marginTop: 10, overflow: 'hidden', alignSelf: 'stretch' },
-  mediaTile: { overflow: 'hidden', backgroundColor: '#0a1624' },
+  quoteContent: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  mediaWrapper: {
+    marginTop: 10,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+  },
+  mediaTile: {
+    overflow: 'hidden',
+    backgroundColor: '#0a1624',
+  },
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
@@ -986,7 +1154,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 2,
   },
-  muteButton: { position: 'absolute', top: 10, right: 10, zIndex: 3 },
+  muteButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 3,
+  },
   muteButtonBg: {
     width: 40,
     height: 40,
@@ -1011,7 +1184,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.4)',
     zIndex: 2,
   },
-  unmuteText: { fontSize: 18 },
+  unmuteText: {
+    fontSize: 18,
+  },
   moreOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -1019,7 +1194,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.55)',
     borderRadius: 12,
   },
-  moreText: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
+  moreText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
   footer: {
     flexDirection: 'row',
     paddingHorizontal: 25,
@@ -1028,8 +1207,38 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 0.5,
   },
-  actionBtn: { flexDirection: 'row', alignItems: 'center' },
-  actionText: { marginLeft: 8, fontSize: 13, fontWeight: '600' },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionText: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // Fullscreen Image Viewer
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 999,
+  },
+  fullscreenScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenImage: {
+    width: width,
+    height: '100%',
+  },
 });
 
 export default PostCard;

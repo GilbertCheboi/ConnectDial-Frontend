@@ -45,10 +45,34 @@
         android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
         android:exported="true">
+
+        <!-- Launcher (original - unchanged) -->
         <intent-filter>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+
+        <!-- ADDED: Custom URI scheme deep link (connectdial://share/post/123) -->
+        <!-- Works immediately, no domain verification needed -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="connectdial" />
+        </intent-filter>
+
+        <!-- ADDED: HTTPS App Links (https://yourdomain.com/share/post/123) -->
+        <!-- Replace yourdomain.com with your actual backend domain -->
+        <!-- Requires assetlinks.json hosted on that domain -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data
+                android:scheme="https"
+                android:host="yourdomain.com" />
+        </intent-filter>
+
       </activity>
     </application>
 </manifest>
